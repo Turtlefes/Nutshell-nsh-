@@ -105,7 +105,7 @@ void handle_builtin_cd(const std::vector<std::string> &t)
     if (path_arg_str == "." || path_arg_str == ".." || path_arg_str.find("../") == 0)
     {
         // For . and .., always use the current working directory as base
-        target_path = fs::current_path() / path_arg_str;
+        target_path = LOGICAL_PWD / path_arg_str;
     }
     else if (!target_path.is_absolute() && path_arg_str != "-")
     {
@@ -122,7 +122,7 @@ void handle_builtin_cd(const std::vector<std::string> &t)
                 if (path_item.empty())
                 {
                     // Empty entry in CDPATH means current directory
-                    fs::path test_path = fs::current_path() / path_arg_str;
+                    fs::path test_path = LOGICAL_PWD / path_arg_str;
                     if (fs::exists(test_path) && fs::is_directory(test_path))
                     {
                         target_path = test_path;
@@ -165,10 +165,10 @@ void handle_builtin_cd(const std::vector<std::string> &t)
             }
         }
         
-        // If still not resolved, treat as relative to current directory
+        // If still not resolved, treat as relative to current logical directory
         if (!resolved)
         {
-            target_path = fs::current_path() / path_arg_str;
+            target_path = LOGICAL_PWD / path_arg_str;
         }
     }
 
@@ -189,30 +189,27 @@ void handle_builtin_cd(const std::vector<std::string> &t)
         }
         else
         {
-            // For logical mode, handle path resolution
-            fs::path temp_logical_path;
-            
+            // For logical mode, handle path resolution using LOGICAL_PWD
             if (target_path.is_absolute())
             {
-                temp_logical_path = target_path.lexically_normal();
+                new_logical_pwd = target_path.lexically_normal();
             }
             else
             {
                 // For relative paths, resolve relative to current logical directory
-                temp_logical_path = (LOGICAL_PWD / target_path).lexically_normal();
-            }
-
-            // Check if the path exists
-            if (!fs::exists(temp_logical_path))
-            {
-                std::cerr << "nsh: cd: " << path_arg_str << ": No such file or directory" << std::endl;
-                last_exit_code = 1;
-                return;
+                new_logical_pwd = (LOGICAL_PWD / target_path).lexically_normal();
             }
 
             // Get the physical path for changing directory
-            physical_path_to_change = temp_logical_path;
-            new_logical_pwd = temp_logical_path;
+            physical_path_to_change = new_logical_pwd;
+        }
+
+        // Check if the path exists
+        if (!fs::exists(physical_path_to_change))
+        {
+            std::cerr << "nsh: cd: " << path_arg_str << ": No such file or directory" << std::endl;
+            last_exit_code = 1;
+            return;
         }
 
         if (!fs::is_directory(physical_path_to_change))
