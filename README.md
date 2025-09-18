@@ -1,37 +1,7 @@
-![GitHub license](https://img.shields.io/github/license/Turtlefes/Nutshell-nsh-)
-![GitHub issues](https://img.shields.io/github/issues/Turtlefes/Nutshell-nsh-)
-![C++17](https://img.shields.io/badge/C%2B%2B-17-blue)
-
-# Nutshell (nsh)
-nutshell or nsh is a custom shell created by a 14 year old student, this shell is equipped with bash-like parser features, built-in commands, interactive line editor, and others, I hope this shell can be useful
-
-## Features
-- Bash syntax (Not Full), beta, i will improved it
-- interactive Shell support
-- Line editor support (Using readline)
-- Builtin commands support
-- Subshell command support like cummand substitution
-- Support artihmetic expansion like `echo $((3 * (2^2)))`
-- Multiline input support
-- And others.
-
-## How to Install
-```bash
-git clone 'https://github.com/Turtlefes/Nutshell-nsh-'
-cd 'Nutshell-nsh-'
-make install
-```
-
-## License
-Turtlefes nutshell uses GPLv3 or GNU General Public License
-
-
-
-
-
 # Nutshell (nsh) - A Modern, Feature-Rich Shell for Developers
 
-![Github License](https://img.shields.io/github/license/Turtlefes/Nutshell-nsh-) ![Github Issues](https://img.shields.io/github/issues/Turtlefes/Nutshell-nsh-) ![Github Stars](https://img.shields.io/badge/C%2B%2B-17-blue https://img.shields.io/github/stars/Turtlefes/Nutshell-nsh-?style=social) ![Github Forks](https://img.shields.io/github/forks/Turtlefes/Nutshell-nsh-?style=social)
+![Github License](https://img.shields.io/github/license/Turtlefes/Nutshell-nsh-) ![Github Issues](https://img.shields.io/github/issues/Turtlefes/Nutshell-nsh-)
+![Github Stars](https://img.shields.io/badge/C%2B%2B-17-blue https://img.shields.io/github/stars/Turtlefes/Nutshell-nsh-?style=social) ![Github Forks](https://img.shields.io/github/forks/Turtlefes/Nutshell-nsh-?style=social)
 ![C++17](https://img.shields.io/badge/C%2B%2B-17-blue)
 
 
