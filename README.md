@@ -1,8 +1,14 @@
 # Nutshell (nsh) - A Modern, Feature-Rich Shell for Developers
 
-![Github License](https://img.shields.io/github/license/Turtlefes/Nutshell-nsh-) ![Github Issues](https://img.shields.io/github/issues/Turtlefes/Nutshell-nsh-)
-![Github Stars](https://img.shields.io/badge/C%2B%2B-17-blue https://img.shields.io/github/stars/Turtlefes/Nutshell-nsh-?style=social) ![Github Forks](https://img.shields.io/github/forks/Turtlefes/Nutshell-nsh-?style=social)
+![GitHub License](https://img.shields.io/github/license/Turtlefes/Nutshell-nsh-) 
+![GitHub Issues](https://img.shields.io/github/issues/Turtlefes/Nutshell-nsh-) 
+![Open PRs](https://img.shields.io/github/issues-pr/Turtlefes/Nutshell-nsh-) 
+![GitHub Stars](https://img.shields.io/github/stars/Turtlefes/Nutshell-nsh-?style=social) 
+![GitHub Forks](https://img.shields.io/github/forks/Turtlefes/Nutshell-nsh-?style=social) 
 ![C++17](https://img.shields.io/badge/C%2B%2B-17-blue)
+![Release](https://img.shields.io/github/v/release/Turtlefes/Nutshell-nsh-)
+![Build Status](https://img.shields.io/github/actions/workflow/status/Turtlefes/Nutshell-nsh-/build.yml?branch=main)
+![Languages](https://img.shields.io/github/languages/top/Turtlefes/Nutshell-nsh-)
 
 
 ## 🚀 A Next-Generation Shell Experience
