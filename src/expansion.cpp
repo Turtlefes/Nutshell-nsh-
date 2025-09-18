@@ -17,8 +17,9 @@
 #include <cmath>
 #include <functional>
 #include <map>
+#include <array> // ADD: For safer buffer handling
 
-// ... (functions cleanup_pattern, match_wildcard, expand_wildcard, expand_tilde, execute_subshell_command remain the same) ...
+// ... (fungsi cleanup_pattern, match_wildcard, expand_wildcard, expand_tilde tetap sama) ...
 std::string cleanup_pattern(const std::string &pattern)
 {
     if (pattern.empty())
@@ -123,8 +124,8 @@ std::string expand_tilde(const std::string &path)
     return path;
 }
 
+// FIX: Refactored to use modern C++ for safer memory and buffer handling
 std::string execute_subshell_command(const std::string &cmd) {
-    // Buat pipe untuk stdout dan pipe terpisah untuk stderr
     int stdout_pipe[2], stderr_pipe[2];
     if (pipe(stdout_pipe) == -1 || pipe(stderr_pipe) == -1) {
         perror("pipe");
@@ -134,127 +135,52 @@ std::string execute_subshell_command(const std::string &cmd) {
     pid_t pid = fork();
     if (pid == -1) {
         perror("fork");
-        close(stdout_pipe[0]);
-        close(stdout_pipe[1]);
-        close(stderr_pipe[0]);
-        close(stderr_pipe[1]);
+        close(stdout_pipe[0]); close(stdout_pipe[1]);
+        close(stderr_pipe[0]); close(stderr_pipe[1]);
         return "";
     }
     
     if (pid == 0) { // Child process
-        // Tutup read end of pipes
-        close(stdout_pipe[0]);
-        close(stderr_pipe[0]);
+        close(stdout_pipe[0]); close(stderr_pipe[0]);
+        dup2(stdout_pipe[1], STDOUT_FILENO); close(stdout_pipe[1]);
+        dup2(stderr_pipe[1], STDERR_FILENO); close(stderr_pipe[1]);
         
-        // Redirect stdout ke write end of stdout pipe
-        dup2(stdout_pipe[1], STDOUT_FILENO);
-        close(stdout_pipe[1]);
-        
-        // Redirect stderr ke write end of stderr pipe
-        dup2(stderr_pipe[1], STDERR_FILENO);
-        close(stderr_pipe[1]);
-        
-        // Eksekusi command menggunakan parser dan executor internal
         Parser parser;
         try {
             auto commands = parser.parse(cmd);
-            if (!commands.empty()) {
-                exit(execute_command_list(commands));
-            }
+            exit(commands.empty() ? 0 : execute_command_list(commands));
         } catch (const std::exception &e) {
             std::cerr << "nsh: " << e.what() << std::endl;
             exit(1);
         }
-        
         exit(0);
     } else { // Parent process
-        // Tutup write end of pipes
-        close(stdout_pipe[1]);
-        close(stderr_pipe[1]);
+        close(stdout_pipe[1]); close(stderr_pipe[1]);
         
-        // Baca output stdout dari child dengan buffer dinamis
-        std::string result;
-        size_t buffer_size = 4096;
-        char* buffer = static_cast<char*>(safe_malloc(buffer_size));
-        
-        if (!buffer) {
-            close(stdout_pipe[0]);
-            close(stderr_pipe[0]);
-            return "";
-        }
-        
+        std::string result, error_output;
+        std::array<char, 4096> buffer;
         ssize_t bytes_read;
-        size_t total_read = 0;
-        
-        while ((bytes_read = read(stdout_pipe[0], buffer + total_read, buffer_size - total_read - 1)) > 0) {
-            total_read += bytes_read;
-            
-            if (total_read >= buffer_size - 1) {
-                buffer_size *= 2;
-                char* new_buffer = static_cast<char*>(safe_realloc(buffer, buffer_size));
-                if (!new_buffer) {
-                    free(buffer);
-                    close(stdout_pipe[0]);
-                    close(stderr_pipe[0]);
-                    return "";
-                }
-                buffer = new_buffer;
-            }
+
+        // Read stdout from child
+        while ((bytes_read = read(stdout_pipe[0], buffer.data(), buffer.size())) > 0) {
+            result.append(buffer.data(), bytes_read);
         }
-        
-        if (total_read > 0) {
-            buffer[total_read] = '\0';
-            result = buffer;
-        }
-        
-        free(buffer);
         close(stdout_pipe[0]);
-        
-        // Baca stderr dengan cara yang sama
-        buffer_size = 4096;
-        buffer = static_cast<char*>(safe_malloc(buffer_size));
-        if (!buffer) {
-            close(stderr_pipe[0]);
-            return result;
+
+        // Read stderr from child
+        while ((bytes_read = read(stderr_pipe[0], buffer.data(), buffer.size())) > 0) {
+            error_output.append(buffer.data(), bytes_read);
         }
-        
-        total_read = 0;
-        std::string error_output;
-        
-        while ((bytes_read = read(stderr_pipe[0], buffer + total_read, buffer_size - total_read - 1)) > 0) {
-            total_read += bytes_read;
-            
-            if (total_read >= buffer_size - 1) {
-                buffer_size *= 2;
-                char* new_buffer = static_cast<char*>(safe_realloc(buffer, buffer_size));
-                if (!new_buffer) {
-                    free(buffer);
-                    close(stderr_pipe[0]);
-                    return result;
-                }
-                buffer = new_buffer;
-            }
-        }
-        
-        if (total_read > 0) {
-            buffer[total_read] = '\0';
-            error_output = buffer;
-        }
-        
-        free(buffer);
         close(stderr_pipe[0]);
         
-        // Tampilkan error output langsung ke terminal jika ada
+        // Display error output directly
         if (!error_output.empty()) {
-            std::cerr << error_output;
-            std::cerr.flush();
+            std::cerr << error_output << std::flush;
         }
         
-        // Tunggu child process selesai
-        int status;
-        waitpid(pid, &status, 0);
+        waitpid(pid, nullptr, 0);
         
-        // Hapus newline terakhir jika ada
+        // Remove trailing newline
         if (!result.empty() && result.back() == '\n') {
             result.pop_back();
         }
@@ -264,12 +190,14 @@ std::string execute_subshell_command(const std::string &cmd) {
 }
 
 
-// ... (arithmetic evaluation helper functions: is_operator, get_precedence, etc. remain the same) ...
 bool is_operator(char c) {
     return c == '+' || c == '-' || c == '*' || c == '/' || c == '%' || 
-           c == '^' || c == '&' || c == '|' || c == '<' || c == '>' || c == '=';
+           c == '^' || c == '&' || c == '|' || c == '<' || c == '>' || c == '=' ||
+           c == '!' || c == '~';
 }
 
+// FIX: Adjusted precedence to better match Bash (e.g., `**` > unary `-` > `*`)
+// ADD: Added unary operators `u+`, `u-` for internal processing
 int get_precedence(const std::string& op) {
     static const std::map<std::string, int> precedence = {
         {"||", 1}, {"&&", 2},
@@ -278,106 +206,101 @@ int get_precedence(const std::string& op) {
         {"<", 7}, {"<=", 7}, {">", 7}, {">=", 7},
         {"<<", 8}, {">>", 8},
         {"+", 9}, {"-", 9},
-        {"*", 10}, {"/", 10}, {"%", 10}
+        {"*", 10}, {"/", 10}, {"%", 10},
+        {"u+", 11}, {"u-", 11}, {"!", 11}, {"~", 11}, // Unary operators
+        {"**", 12}  // Exponentiation has highest precedence
     };
     
     auto it = precedence.find(op);
     return it != precedence.end() ? it->second : 0;
 }
 
+// ADD: Unary operators are right-associative
 bool is_right_associative(const std::string& op) {
-    return op == "^" || op == "=";
+    return op == "**" || op == "u+" || op == "u-" || op == "!" || op == "~";
 }
 
+// FIX: Tokenizer now recognizes hex literals (e.g., 0xff)
 std::vector<std::string> tokenize_arithmetic(const std::string& expr) {
     std::vector<std::string> tokens;
-    size_t i = 0;
-    size_t n = expr.length();
-    
-    while (i < n) {
-        if (isspace(expr[i])) {
-            i++;
-            continue;
-        }
-        
+    for (size_t i = 0; i < expr.length(); ++i) {
+        if (isspace(expr[i])) continue;
+
         if (isdigit(expr[i])) {
             std::string num;
-            while (i < n && (isdigit(expr[i]) || expr[i] == '.')) {
-                num += expr[i++];
+            if (expr[i] == '0' && i + 1 < expr.length() && (expr[i+1] == 'x' || expr[i+1] == 'X')) {
+                num += "0x";
+                i += 2;
+                while (i < expr.length() && isxdigit(expr[i])) {
+                    num += expr[i++];
+                }
+                i--;
+            } else {
+                while (i < expr.length() && isdigit(expr[i])) {
+                    num += expr[i++];
+                }
+                i--;
             }
             tokens.push_back(num);
-            continue;
-        }
-        
-        if (isalpha(expr[i]) || expr[i] == '_') {
+        } else if (isalpha(expr[i]) || expr[i] == '_') {
             std::string var;
-            while (i < n && (isalnum(expr[i]) || expr[i] == '_')) {
+            while (i < expr.length() && (isalnum(expr[i]) || expr[i] == '_')) {
                 var += expr[i++];
             }
+            i--;
             tokens.push_back(var);
-            continue;
-        }
-        
-        if (is_operator(expr[i])) {
-            std::string op;
-            op += expr[i++];
-            
-            if (i < n && is_operator(expr[i])) {
-                std::string potential_op = op + expr[i];
-                if (potential_op == "<<" || potential_op == ">>" || 
-                    potential_op == "<=" || potential_op == ">=" ||
-                    potential_op == "==" || potential_op == "!=" ||
-                    potential_op == "&&" || potential_op == "||") {
-                    op = potential_op;
-                    i++;
+        } else if (is_operator(expr[i])) {
+            std::string op(1, expr[i]);
+            if (i + 1 < expr.length()) {
+                std::string two_char_op = op + expr[i+1];
+                if (get_precedence(two_char_op) > 0 || two_char_op == "!=") {
+                     op = two_char_op;
+                     i++;
                 }
             }
             tokens.push_back(op);
-            continue;
+        } else if (expr[i] == '(' || expr[i] == ')') {
+            tokens.push_back(std::string(1, expr[i]));
         }
-        
-        if (expr[i] == '(' || expr[i] == ')') {
-            tokens.push_back(std::string(1, expr[i++]));
-            continue;
-        }
-        
-        if (expr[i] == '!' || expr[i] == '~') {
-            tokens.push_back(std::string(1, expr[i++]));
-            continue;
-        }
-        
-        i++;
     }
-    
     return tokens;
 }
 
+// FIX: Shunting-yard algorithm now correctly identifies and handles unary operators
 std::vector<std::string> infix_to_postfix(const std::vector<std::string>& tokens) {
     std::vector<std::string> output;
     std::stack<std::string> op_stack;
-    
+    bool expect_operand = true;
+
     for (const auto& token : tokens) {
         if (token == "(") {
             op_stack.push(token);
+            expect_operand = true;
         } else if (token == ")") {
             while (!op_stack.empty() && op_stack.top() != "(") {
                 output.push_back(op_stack.top());
                 op_stack.pop();
             }
-            if (!op_stack.empty() && op_stack.top() == "(") {
-                op_stack.pop();
-            }
+            if (!op_stack.empty()) op_stack.pop(); // Pop '('
+            expect_operand = false;
         } else if (get_precedence(token) > 0) {
+            std::string op_to_push = token;
+            if (expect_operand && (token == "+" || token == "-")) { // Handle unary +/-
+                op_to_push = "u" + token;
+            }
+
             while (!op_stack.empty() && op_stack.top() != "(" &&
-                   (get_precedence(op_stack.top()) > get_precedence(token) ||
-                   (get_precedence(op_stack.top()) == get_precedence(token) && 
-                    !is_right_associative(token)))) {
+                   (get_precedence(op_stack.top()) > get_precedence(op_to_push) ||
+                   (get_precedence(op_stack.top()) == get_precedence(op_to_push) && 
+                    !is_right_associative(op_to_push)))) {
                 output.push_back(op_stack.top());
                 op_stack.pop();
             }
-            op_stack.push(token);
-        } else {
+            op_stack.push(op_to_push);
+            expect_operand = true;
+        } else { // Operand (number or variable)
             output.push_back(token);
+            expect_operand = false;
         }
     }
     
@@ -385,31 +308,46 @@ std::vector<std::string> infix_to_postfix(const std::vector<std::string>& tokens
         output.push_back(op_stack.top());
         op_stack.pop();
     }
-    
     return output;
 }
 
+// FIX: Now uses `std::stol` with base 0 for auto-detection of hex/octal
+// ADD: Handles unary operator tokens `u+` and `u-`
 long evaluate_postfix(const std::vector<std::string>& postfix) {
     std::stack<long> stack;
     
     for (const auto& token : postfix) {
         if (get_precedence(token) > 0) {
-            if (stack.size() < 2) {
-                throw std::runtime_error("Invalid expression: not enough operands");
+            // Handle unary operators
+            if (token == "u+" || token == "u-" || token == "!" || token == "~") {
+                 if (stack.empty()) throw std::runtime_error("Invalid expression: not enough operands for unary op");
+                 long a = stack.top(); stack.pop();
+                 if (token == "u+") stack.push(a);
+                 else if (token == "u-") stack.push(-a);
+                 else if (token == "!") stack.push(!a);
+                 else if (token == "~") stack.push(~a);
+                 continue;
             }
-            
+
+            if (stack.size() < 2) throw std::runtime_error("Invalid expression: not enough operands");
             long b = stack.top(); stack.pop();
             long a = stack.top(); stack.pop();
             
             if (token == "+") stack.push(a + b);
             else if (token == "-") stack.push(a - b);
             else if (token == "*") stack.push(a * b);
-            else if (token == "/") {
-                if (b == 0) throw std::runtime_error("Division by zero");
-                stack.push(a / b);
+            else if (token == "/") { if (b == 0) throw std::runtime_error("Division by zero"); stack.push(a / b); }
+            // NOTE: C++ '%' behavior for negative numbers matches Bash.
+            // The sign of `a % b` is the sign of `a`. This is correct.
+            else if (token == "%") { if (b == 0) throw std::runtime_error("Modulo by zero"); stack.push(a % b); }
+            else if (token == "**") {
+                if (b < 0) { // Bash-like integer exponentiation
+                    stack.push(a == 1 ? 1 : (a == -1 ? (b % 2 == 0 ? 1 : -1) : 0));
+                } else {
+                    long res = 1; for (long i = 0; i < b; ++i) res *= a; stack.push(res);
+                }
             }
-            else if (token == "%") stack.push(a % b);
-            else if (token == "^") stack.push(static_cast<long>(pow(a, b)));
+            else if (token == "^") stack.push(a ^ b);
             else if (token == "&") stack.push(a & b);
             else if (token == "|") stack.push(a | b);
             else if (token == "<<") stack.push(a << b);
@@ -422,55 +360,42 @@ long evaluate_postfix(const std::vector<std::string>& postfix) {
             else if (token == "!=") stack.push(a != b);
             else if (token == "&&") stack.push(a && b);
             else if (token == "||") stack.push(a || b);
-        } else if (token == "!") {
-            if (stack.empty()) throw std::runtime_error("Invalid expression: not enough operands for !");
-            long a = stack.top(); stack.pop();
-            stack.push(!a);
-        } else if (token == "~") {
-            if (stack.empty()) throw std::runtime_error("Invalid expression: not enough operands for ~");
-            long a = stack.top(); stack.pop();
-            stack.push(~a);
-        } else {
-            if (isdigit(token[0]) || (token.length() > 1 && token[0] == '-')) {
-                try {
-                    stack.push(std::stol(token));
-                } catch (...) {
-                    throw std::runtime_error("Invalid number: " + token);
-                }
-            } else {
+
+        } else { // Operand
+            try {
+                // Use std::stol with base 0 to auto-detect hex (0x) and octal (0)
+                stack.push(std::stol(token, nullptr, 0));
+            } catch (...) {
                 const char* val = getenv(token.c_str());
-                if (val) {
-                    try {
-                        stack.push(std::stol(val));
-                    } catch (...) {
-                        stack.push(0); 
-                    }
-                } else {
-                    stack.push(0);
+                try {
+                    stack.push(val ? std::stol(val, nullptr, 0) : 0);
+                } catch (...) {
+                    stack.push(0); // Variable is not a valid number
                 }
             }
         }
     }
     
-    if (stack.size() != 1) {
-        throw std::runtime_error("Invalid expression");
-    }
-    
+    if (stack.size() != 1) throw std::runtime_error("Invalid expression");
     return stack.top();
 }
 
+
 std::string evaluate_arithmetic(const std::string& expr) {
+    if (expr.empty()) return "0";
     try {
         auto tokens = tokenize_arithmetic(expr);
         auto postfix = infix_to_postfix(tokens);
         long result = evaluate_postfix(postfix);
         return std::to_string(result);
     } catch (const std::exception& e) {
-        std::cerr << "nsh: Arithmetic expansion error: " << e.what() << std::endl;
-        return "0";
+        std::cerr << "nsh: arithmetic error: " << expr << ": " << e.what() << std::endl;
+        return "0"; // Bash returns 0 on error within $((...))
     }
 }
 
+
+// ... (sisa file: expand_argument, apply_expansions_and_wildcards, etc. tetap sama) ...
 std::string expand_argument(const std::string &token)
 {
     std::string result;
@@ -486,19 +411,15 @@ std::string expand_argument(const std::string &token)
         if (escaped)
         {
             if (in_double_quote) {
-                // Dalam double quotes, hanya karakter tertentu yang di-escape
                 if (c == '$' || c == '`' || c == '"' || c == '\\' || c == '\n') {
                     result += c;
                 } else {
-                    // Backslash literal untuk karakter lain
                     result += '\\';
                     result += c;
                 }
             } else if (!in_single_quote) {
-                // Di luar quotes, backslash selalu escape karakter berikutnya
                 result += c;
             } else {
-                // Dalam single quotes, backslash adalah literal
                 result += '\\';
                 result += c;
             }
@@ -529,7 +450,6 @@ std::string expand_argument(const std::string &token)
             continue;
         }
 
-        // Dalam double quotes, lakukan ekspansi untuk $, `, tapi backslash dipertahankan
         if (c == '$' && !in_single_quote)
         {
             size_t start = i + 1;
@@ -541,7 +461,6 @@ std::string expand_argument(const std::string &token)
 
             if (token[start] == '{')
             {
-                // Parameter expansion ${...}
                 size_t end = token.find('}', start);
                 if (end != std::string::npos)
                 {
@@ -618,7 +537,6 @@ std::string expand_argument(const std::string &token)
             }
             else if (isdigit(token[start]))
             {
-                // Positional parameters, kita skip untuk sekarang
                 i = start;
             }
             else if (token[start] == '?')
@@ -646,7 +564,6 @@ std::string expand_argument(const std::string &token)
         }
         else if (c == '`' && !in_single_quote)
         {
-            // Backtick command substitution
             size_t end = token.find('`', i + 1);
             if (end != std::string::npos)
             {
@@ -666,7 +583,6 @@ std::string expand_argument(const std::string &token)
     return result;
 }
 
-// ... (remaining functions apply_expansions_and_wildcards, is_env_assignment, parse_env_assignment remain the same) ...
 void apply_expansions_and_wildcards(std::vector<std::string> &tokens)
 {
     if (tokens.empty())
@@ -678,14 +594,12 @@ void apply_expansions_and_wildcards(std::vector<std::string> &tokens)
     {
         const auto &token = tokens[i];
         
-        // Untuk environment assignments (hanya di posisi pertama)
         if (i == 0 && is_env_assignment(token))
         {
             size_t eq_pos = token.find('=');
             std::string var_name = token.substr(0, eq_pos);
             std::string value = token.substr(eq_pos + 1);
             
-            // Expand value tanpa wildcard
             std::string expanded_value = expand_argument(expand_tilde(value));
             new_tokens.push_back(var_name + "=" + expanded_value);
             continue;
@@ -693,7 +607,6 @@ void apply_expansions_and_wildcards(std::vector<std::string> &tokens)
 
         std::string expanded_arg = expand_argument(expand_tilde(token));
 
-        // Wildcard expansion hanya untuk token biasa, bukan untuk assignments
         if (expanded_arg.find_first_of("*?") != std::string::npos && 
             !is_env_assignment(expanded_arg))
         {
@@ -732,8 +645,6 @@ std::pair<std::string, std::string> parse_env_assignment(const std::string &toke
     std::string var_name = token.substr(0, eq_pos);
     std::string value = token.substr(eq_pos + 1);
 
-    // Untuk assignment, kita perlu melakukan ekspansi normal pada value
-    // tapi tanpa wildcard expansion
     std::string expanded_value = expand_argument(value);
     
     return {var_name, expanded_value};
