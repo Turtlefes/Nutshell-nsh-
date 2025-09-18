@@ -4,6 +4,7 @@
 #include "expansion.h"
 #include "init.h"
 #include "parser.h"
+#include "execution.h"
 
 #include <iostream>
 #include <iomanip>
@@ -12,6 +13,7 @@
 #include <sstream>
 #include <fstream>
 #include <cstdlib>
+#include <unordered_map>
 
 #include <sys/wait.h>
 #include <cstring>
@@ -21,12 +23,13 @@
 #include <readline/history.h>
 
 
-#include "../builtins/cd.impl"
-#include "../builtins/pwd.impl"
-#include "../builtins/alias.impl"
-#include "../builtins/unalias.impl"
-#include "../builtins/export.impl"
-#include "../builtins/bookmark.impl"
-#include "../builtins/history.impl"
-#include "../builtins/exec.impl"
-#include "../builtins/unset.impl"
+#include "../builtins/cd_impl.cpp"
+#include "../builtins/pwd_impl.cpp"
+#include "../builtins/alias_impl.cpp"
+#include "../builtins/unalias_impl.cpp"
+#include "../builtins/export_impl.cpp"
+#include "../builtins/bookmark_impl.cpp"
+#include "../builtins/history_impl.cpp"
+#include "../builtins/exec_impl.cpp"
+#include "../builtins/unset_impl.cpp"
+#include "../builtins/hash_impl.cpp"

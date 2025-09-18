@@ -11,4 +11,6 @@ int execute_job(const ParsedCommand &cmd_group);
 int execute_command_list(const std::vector<ParsedCommand> &commands);
 void check_child_status();
 
+std::string find_binary(const std::string &cmd);
+
 #endif // EXECUTION_H

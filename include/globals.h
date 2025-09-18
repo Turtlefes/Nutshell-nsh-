@@ -11,6 +11,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <stdexcept>
+#include <unordered_map>
 
 namespace fs = std::filesystem;
 
@@ -51,6 +52,7 @@ extern size_t history_index;
 extern int last_exit_code;
 extern char **environ;
 extern volatile sig_atomic_t continuation_interrupt;
+extern std::unordered_map<std::string, std::string> binary_hash_loc;
 
 // --- Job Control Structures ---
 enum class JobStatus { RUNNING, STOPPED };

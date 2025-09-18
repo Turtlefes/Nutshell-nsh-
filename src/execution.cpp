@@ -10,6 +10,11 @@
 #include <cstring>
 #include <csignal>
 #include <utils.h>
+#include <filesystem>
+#include <unistd.h>
+#include <unordered_map>
+
+namespace fs = std::filesystem;
 
 std::string job_status_to_string(JobStatus status) { return status == JobStatus::RUNNING ? "Running" : "Stopped"; }
 
@@ -134,7 +139,94 @@ void handle_redirection(const SimpleCommand &cmd)
     }
 }
 
-void launch_process(pid_t pgid, const SimpleCommand &cmd, bool foreground) {
+
+
+/*
+std::string find_binary(const std::string &cmd) {
+    const char* path_env = std::getenv("PATH");
+    if (!path_env) return "";
+
+    std::string path_str(path_env);
+    size_t start = 0, end;
+
+    while ((end = path_str.find(':', start)) != std::string::npos) {
+        std::string dir = path_str.substr(start, end - start);
+        fs::path p = fs::path(dir) / cmd;
+        if (fs::exists(p) && fs::is_regular_file(p) &&
+            ((fs::status(p).permissions() & fs::perms::owner_exec) != fs::perms::none)) {
+            return p.string();
+        }
+        start = end + 1;
+    }
+
+    // cek direktori terakhir setelah ':'
+    std::string dir = path_str.substr(start);
+    fs::path p = fs::path(dir) / cmd;
+    if (fs::exists(p) && fs::is_regular_file(p) &&
+        ((fs::status(p).permissions() & fs::perms::owner_exec) != fs::perms::none)) {
+        return p.string();
+    }
+
+    return ""; // tidak ketemu
+}
+*/
+
+
+std::string find_binary(const std::string &cmd)
+{
+    // Cek di hash table terlebih dahulu
+    auto is_hashed = binary_hash_loc.find(cmd);
+    if (is_hashed != binary_hash_loc.end()) {
+        // Verify the cached path still exists and is executable
+        if (fs::exists(is_hashed->second) && fs::is_regular_file(is_hashed->second) && 
+            access(is_hashed->second.c_str(), X_OK) == 0) {
+            return is_hashed->second;
+        } else {
+            // Remove invalid entry from hash table
+            binary_hash_loc.erase(is_hashed);
+        }
+    }
+    
+    const char* path_env = std::getenv("PATH");
+    if (!path_env) return "";
+    
+    std::string path_str = path_env;
+    size_t start = 0, end;
+    
+    while ((end = path_str.find(':', start)) != std::string::npos) {
+        std::string dir = path_str.substr(start, end - start);
+        if (dir.empty()) {
+            start = end + 1;
+            continue;
+        }
+        
+        fs::path binary_path = fs::path(dir) / cmd;
+        if (fs::exists(binary_path) && fs::is_regular_file(binary_path) && 
+            access(binary_path.c_str(), X_OK) == 0) {
+            std::string abs_path = fs::absolute(binary_path).string();
+            binary_hash_loc[cmd] = abs_path; // Add to hash table
+            return abs_path;
+        }
+        start = end + 1;
+    }
+    
+    // Cek direktori terakhir
+    std::string dir = path_str.substr(start);
+    if (!dir.empty()) {
+        fs::path binary_path = fs::path(dir) / cmd;
+        if (fs::exists(binary_path) && fs::is_regular_file(binary_path) && 
+            access(binary_path.c_str(), X_OK) == 0) {
+            std::string abs_path = fs::absolute(binary_path).string();
+            binary_hash_loc[cmd] = abs_path; // Add to hash table
+            
+            return abs_path;
+        }
+    }
+    
+    return "";
+}
+
+void launch_process(pid_t pgid, const SimpleCommand &cmd, bool foreground, const std::string& original_cmd_name = "") {
     pid_t pid = getpid();
     if (pgid == 0)
         pgid = pid;
@@ -145,12 +237,12 @@ void launch_process(pid_t pgid, const SimpleCommand &cmd, bool foreground) {
 
     restore_terminal_mode();
 
+    // Reset sinyal
     for (int sig = 1; sig < NSIG; sig++) {
         if (sig == SIGKILL || sig == SIGSTOP)
             continue;
         signal(sig, SIG_DFL);
     }
-
     signal(SIGINT, SIG_DFL);
     signal(SIGQUIT, SIG_DFL);
     signal(SIGTSTP, SIG_DFL);
@@ -160,14 +252,21 @@ void launch_process(pid_t pgid, const SimpleCommand &cmd, bool foreground) {
 
     handle_redirection(cmd);
 
-    // Alokasi memori yang aman untuk argv
     char** argv = static_cast<char**>(safe_malloc((cmd.tokens.size() + 1) * sizeof(char*)));
     if (!argv) {
         exit(1);
     }
     
     try {
-        for (size_t i = 0; i < cmd.tokens.size(); ++i) {
+        // Gunakan nama asli command untuk argv[0]
+        if (!original_cmd_name.empty()) {
+            argv[0] = safe_strdup(original_cmd_name.c_str());
+        } else {
+            argv[0] = safe_strdup(cmd.tokens[0].c_str());
+        }
+        
+        // Token lainnya tetap
+        for (size_t i = 1; i < cmd.tokens.size(); ++i) {
             argv[i] = safe_strdup(cmd.tokens[i].c_str());
         }
         argv[cmd.tokens.size()] = nullptr;
@@ -178,28 +277,14 @@ void launch_process(pid_t pgid, const SimpleCommand &cmd, bool foreground) {
             }
         }
 
-        execvp(cmd.tokens[0].c_str(), argv);
+        // Eksekusi dengan path absolut, tapi argv[0] berisi nama asli
         execv(cmd.tokens[0].c_str(), argv);
+        
+        // Error handling
+        std::cerr << "nsh: " << cmd.tokens[0] << ": " << strerror(errno) << std::endl;
+        exit(126);
 
-        switch (errno) {
-        case ENOENT:
-            std::cerr << "nsh: " << cmd.tokens[0] << ": command not found" << std::endl;
-            exit(127);
-        case EACCES:
-            std::cerr << "nsh: " << cmd.tokens[0] << ": Permission denied" << std::endl;
-            exit(126);
-        case EISDIR:
-            std::cerr << "nsh: " << cmd.tokens[0] << ": Is a directory" << std::endl;
-            exit(126);
-        case ENOEXEC:
-            std::cerr << "nsh: " << cmd.tokens[0] << ": Exec format error" << std::endl;
-            exit(126);
-        default:
-            std::cerr << "nsh: " << cmd.tokens[0] << ": " << strerror(errno) << std::endl;
-            exit(126);
-        }
     } catch (const std::bad_alloc&) {
-        // Cleanup jika terjadi error alokasi memori
         for (size_t i = 0; i < cmd.tokens.size() && argv[i]; ++i) {
             free(argv[i]);
         }
@@ -212,7 +297,7 @@ bool is_builtin(const std::string &command)
 {
     static const std::set<std::string> builtins = {
         "exit", "cd", "alias", "unalias", "history", "pwd",
-        "jobs", "fg", "bg", "clear", "cls", "export", "bookmark", "exec", "unset"};
+        "jobs", "fg", "bg", "clear", "export", "bookmark", "exec", "unset", "hash"};
     return builtins.count(command);
 }
 
@@ -244,7 +329,7 @@ int execute_builtin(const SimpleCommand &cmd)
         save_history();
         exit(tokens.size() > 1 ? std::stoi(tokens[1]) : 0);
     }
-    else if (tokens[0] == "clear" || tokens[0] == "cls")
+    else if (tokens[0] == "clear")
     {
         clear_screen(); // ini dari utils cok!
         last_exit_code = 0;
@@ -284,6 +369,10 @@ int execute_builtin(const SimpleCommand &cmd)
     else if (tokens[0] == "bookmark")
     {
         handle_builtin_bookmark(tokens);
+    }
+    else if (tokens[0] == "hash")
+    {
+        handle_builtin_hash(tokens);
     }
     else if (tokens[0] == "jobs")
     {
@@ -374,6 +463,7 @@ int execute_job(const ParsedCommand &cmd_group)
     if (cmd_group.pipeline.empty())
         return 0;
 
+    // Built-in handling tetap sama
     if (cmd_group.pipeline.size() == 1 && !cmd_group.pipeline[0].tokens.empty() && is_builtin(cmd_group.pipeline[0].tokens[0]))
     {
         const auto &simple_cmd = cmd_group.pipeline[0];
@@ -390,11 +480,37 @@ int execute_job(const ParsedCommand &cmd_group)
     int in_fd = STDIN_FILENO, pipe_fd[2];
     pid_t pgid = 0;
     std::vector<pid_t> pids;
+    
+    // Salin pipeline agar bisa dimodifikasi dan simpan nama command asli
+    std::vector<SimpleCommand> pipeline_with_paths = cmd_group.pipeline;
+    std::vector<std::string> original_cmd_names;
 
-    for (size_t i = 0; i < cmd_group.pipeline.size(); ++i)
+    // Lakukan path resolution di parent
+    for (auto &simple_cmd : pipeline_with_paths) {
+        if (simple_cmd.tokens.empty() || is_builtin(simple_cmd.tokens[0])) {
+            original_cmd_names.push_back(""); // Kosong untuk builtin
+            continue;
+        }
+        
+        // Simpan nama command asli sebelum diganti
+        std::string original_name = simple_cmd.tokens[0];
+        std::string binary_path = find_binary(original_name);
+        
+        if (binary_path.empty()) {
+            std::cerr << "nsh: " << original_name << ": command not found" << std::endl;
+            return 127; // Kode exit standar untuk command not found
+        }
+        
+        // Ganti nama command dengan path absolutnya untuk execv
+        simple_cmd.tokens[0] = binary_path;
+        original_cmd_names.push_back(original_name); // Simpan nama asli
+    }
+
+    for (size_t i = 0; i < pipeline_with_paths.size(); ++i)
     {
-        const auto &simple_cmd = cmd_group.pipeline[i];
-        bool is_last = (i == cmd_group.pipeline.size() - 1);
+        const auto &simple_cmd = pipeline_with_paths[i];
+        const std::string &original_name = original_cmd_names[i];
+        bool is_last = (i == pipeline_with_paths.size() - 1);
 
         if (!is_last)
         {
@@ -425,7 +541,8 @@ int execute_job(const ParsedCommand &cmd_group)
                 dup2(pipe_fd[1], STDOUT_FILENO);
                 close(pipe_fd[1]);
             }
-            launch_process(pgid, simple_cmd, !cmd_group.background);
+            // Teruskan nama command asli ke launch_process
+            launch_process(pgid, simple_cmd, !cmd_group.background, original_name);
         }
         else
         { 
@@ -442,9 +559,12 @@ int execute_job(const ParsedCommand &cmd_group)
             }
         }
     }
+    
+    // Pastikan menutup file descriptor terakhir
     if (in_fd != STDIN_FILENO)
         close(in_fd);
 
+    // Sisa fungsi (job control, background/foreground) tetap sama
     if (cmd_group.background)
     {
         std::string command_str;
@@ -494,6 +614,8 @@ int execute_job(const ParsedCommand &cmd_group)
         return 1;
     }
 }
+
+
 
 int execute_command_list(const std::vector<ParsedCommand> &commands)
 {

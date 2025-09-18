@@ -79,12 +79,10 @@ void sigint_handler(int signum) {
             perror("kill (SIGINT)");
         }
     } else {
-        // Tidak ada job foreground, tampilkan prompt baru
         rl_replace_line("", 0);   // kosongkan input
         rl_crlf();                // bikin newline
         rl_on_new_line();         // pindah ke baris baru
-        rl_done = 1;              // force readline selesai
-
+        
         rl_replace_line("", 0);   // pastikan buffer kosong
         rl_redisplay();           // redraw prompt
     }

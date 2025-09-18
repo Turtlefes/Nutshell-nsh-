@@ -477,35 +477,38 @@ std::string expand_argument(const std::string &token)
     result.reserve(token.length());
     bool in_single_quote = false;
     bool in_double_quote = false;
+    bool escaped = false;
 
     for (size_t i = 0; i < token.length(); ++i)
     {
         char c = token[i];
 
-        if (c == '\\' && !in_single_quote)
+        if (escaped)
         {
-            if (i + 1 < token.length())
-            {
-                if (in_double_quote)
-                {
-                    if (strchr("$`\"\\", token[i + 1]))
-                    {
-                        result += token[++i];
-                    }
-                    else
-                    {
-                        result += c;
-                    }
+            if (in_double_quote) {
+                // Dalam double quotes, hanya karakter tertentu yang di-escape
+                if (c == '$' || c == '`' || c == '"' || c == '\\' || c == '\n') {
+                    result += c;
+                } else {
+                    // Backslash literal untuk karakter lain
+                    result += '\\';
+                    result += c;
                 }
-                else
-                {
-                    result += token[++i];
-                }
-            }
-            else
-            {
+            } else if (!in_single_quote) {
+                // Di luar quotes, backslash selalu escape karakter berikutnya
+                result += c;
+            } else {
+                // Dalam single quotes, backslash adalah literal
+                result += '\\';
                 result += c;
             }
+            escaped = false;
+            continue;
+        }
+
+        if (c == '\\' && !in_single_quote)
+        {
+            escaped = true;
             continue;
         }
 
@@ -526,7 +529,8 @@ std::string expand_argument(const std::string &token)
             continue;
         }
 
-        if (c == '$')
+        // Dalam double quotes, lakukan ekspansi untuk $, `, tapi backslash dipertahankan
+        if (c == '$' && !in_single_quote)
         {
             size_t start = i + 1;
             if (start >= token.length())
@@ -537,37 +541,13 @@ std::string expand_argument(const std::string &token)
 
             if (token[start] == '{')
             {
+                // Parameter expansion ${...}
                 size_t end = token.find('}', start);
                 if (end != std::string::npos)
                 {
-                    std::string full_spec = token.substr(start + 1, end - start - 1);
-                    std::string var_name = full_spec;
-                    
-                    size_t slash_pos = full_spec.find('/');
-                    if (slash_pos != std::string::npos) {
-                        var_name = full_spec.substr(0, slash_pos);
-                        std::string rest = full_spec.substr(slash_pos + 1);
-                        size_t second_slash_pos = rest.find('/');
-                        if (second_slash_pos != std::string::npos) {
-                            std::string pattern = rest.substr(0, second_slash_pos);
-                            std::string replacement = rest.substr(second_slash_pos + 1);
-                            const char* val = getenv(var_name.c_str());
-                            if (val) {
-                                std::string s_val(val);
-                                size_t pos = s_val.find(pattern);
-                                if (pos != std::string::npos) {
-                                    s_val.replace(pos, pattern.length(), replacement);
-                                }
-                                result += s_val;
-                            }
-                        } else {
-                             const char *val = getenv(full_spec.c_str());
-                             if (val) result += val;
-                        }
-                    } else {
-                        const char *val = getenv(var_name.c_str());
-                        if (val) result += val;
-                    }
+                    std::string var_name = token.substr(start + 1, end - start - 1);
+                    const char *val = getenv(var_name.c_str());
+                    if (val) result += val;
                     i = end;
                 }
                 else
@@ -633,12 +613,12 @@ std::string expand_argument(const std::string &token)
                     end++;
                 std::string var_name = token.substr(start, end - start);
                 const char *val = getenv(var_name.c_str());
-                if (val)
-                    result += val;
+                if (val) result += val;
                 i = end - 1;
             }
             else if (isdigit(token[start]))
             {
+                // Positional parameters, kita skip untuk sekarang
                 i = start;
             }
             else if (token[start] == '?')
@@ -664,8 +644,9 @@ std::string expand_argument(const std::string &token)
                 result += '$';
             }
         }
-        else if (c == '`')
+        else if (c == '`' && !in_single_quote)
         {
+            // Backtick command substitution
             size_t end = token.find('`', i + 1);
             if (end != std::string::npos)
             {
@@ -690,28 +671,31 @@ void apply_expansions_and_wildcards(std::vector<std::string> &tokens)
 {
     if (tokens.empty())
         return;
+    
     std::vector<std::string> new_tokens;
+    
     for (size_t i = 0; i < tokens.size(); ++i)
     {
         const auto &token = tokens[i];
-        if (is_env_assignment(token) && i == 0)
+        
+        // Untuk environment assignments (hanya di posisi pertama)
+        if (i == 0 && is_env_assignment(token))
         {
-            // For environment assignments, we need to split on '=' and only expand the value
             size_t eq_pos = token.find('=');
             std::string var_name = token.substr(0, eq_pos);
             std::string value = token.substr(eq_pos + 1);
             
-            // Expand only the value part
+            // Expand value tanpa wildcard
             std::string expanded_value = expand_argument(expand_tilde(value));
-            
-            // Reconstruct the assignment
             new_tokens.push_back(var_name + "=" + expanded_value);
             continue;
         }
 
         std::string expanded_arg = expand_argument(expand_tilde(token));
 
-        if (expanded_arg.find_first_of("*?") != std::string::npos)
+        // Wildcard expansion hanya untuk token biasa, bukan untuk assignments
+        if (expanded_arg.find_first_of("*?") != std::string::npos && 
+            !is_env_assignment(expanded_arg))
         {
             std::vector<std::string> expanded_wildcard = expand_wildcard(expanded_arg);
             new_tokens.insert(new_tokens.end(), expanded_wildcard.begin(), expanded_wildcard.end());
@@ -721,6 +705,7 @@ void apply_expansions_and_wildcards(std::vector<std::string> &tokens)
             new_tokens.push_back(expanded_arg);
         }
     }
+    
     tokens = new_tokens;
 }
 
@@ -740,63 +725,16 @@ bool is_env_assignment(const std::string &token)
 std::pair<std::string, std::string> parse_env_assignment(const std::string &token)
 {
     size_t eq_pos = token.find('=');
+    if (eq_pos == std::string::npos || eq_pos == 0) {
+        return {"", ""};
+    }
+    
     std::string var_name = token.substr(0, eq_pos);
     std::string value = token.substr(eq_pos + 1);
 
-    // For assignment values, we need to preserve backslashes literally
-    // but still handle quotes and other special characters appropriately
-    std::string temp_value = value;
+    // Untuk assignment, kita perlu melakukan ekspansi normal pada value
+    // tapi tanpa wildcard expansion
+    std::string expanded_value = expand_argument(value);
     
-    // Remove surrounding quotes but preserve backslashes within
-    if (temp_value.length() >= 2 && 
-        ((temp_value.front() == '\'' && temp_value.back() == '\'') ||
-         (temp_value.front() == '"' && temp_value.back() == '"')))
-    {
-        temp_value = temp_value.substr(1, temp_value.length() - 2);
-        
-        // For quoted strings, we need to handle escaped characters properly
-        std::string processed_value;
-        bool escaped = false;
-        
-        for (char c : temp_value) {
-            if (escaped) {
-                processed_value += c;
-                escaped = false;
-            } else if (c == '\\') {
-                escaped = true;
-                processed_value += c; // Keep the backslash
-            } else {
-                processed_value += c;
-            }
-        }
-        
-        value = processed_value;
-    }
-    else
-    {
-        // For unquoted values, we still need to preserve backslashes
-        // but perform basic expansion (like tilde expansion)
-        value = expand_tilde(temp_value);
-        
-        // But we need to prevent backslash removal in the expansion process
-        // So we'll handle this specially
-        std::string preserved_value;
-        bool escaped = false;
-        
-        for (char c : value) {
-            if (escaped) {
-                preserved_value += c;
-                escaped = false;
-            } else if (c == '\\') {
-                escaped = true;
-                preserved_value += c; // Keep the backslash
-            } else {
-                preserved_value += c;
-            }
-        }
-        
-        value = preserved_value;
-    }
-    
-    return {var_name, value};
+    return {var_name, expanded_value};
 }

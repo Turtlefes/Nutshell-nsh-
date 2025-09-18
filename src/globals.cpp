@@ -2,7 +2,7 @@
 
 // --- Shell Information ---
 const char *const shell_version   = "0.3.8";
-const char *const shell_version_long = "0.3.8.26";
+const char *const shell_version_long = "0.3.8.46";
 const char *const ext_shell_name  = "nsh";
 const char *const release_date    = "2025";
 const char *const COPYRIGHT       = "Copyright (c) 2025 Turtlefes. Bayu Setiawan";
@@ -37,6 +37,7 @@ size_t history_index = 0;
 int last_exit_code = 0;
 char **environ = nullptr;
 volatile sig_atomic_t continuation_interrupt = 0;
+std::unordered_map<std::string, std::string> binary_hash_loc;
 
 // --- Job Control ---
 std::map<int, Job> jobs;
