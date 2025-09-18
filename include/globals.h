@@ -52,7 +52,12 @@ extern size_t history_index;
 extern int last_exit_code;
 extern char **environ;
 extern volatile sig_atomic_t continuation_interrupt;
-extern std::unordered_map<std::string, std::string> binary_hash_loc;
+struct binary_hash_info {
+    std::string path;
+    std::string command_name;
+    size_t hits = 0;
+};
+extern std::unordered_map<std::string, binary_hash_info> binary_hash_loc;
 
 // --- Job Control Structures ---
 enum class JobStatus { RUNNING, STOPPED };

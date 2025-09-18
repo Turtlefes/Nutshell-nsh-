@@ -37,7 +37,8 @@
 
 - **Command Substitution**: Full support for nested command execution
 - **Arithmetic Expansion**: Powerful mathematical evaluation with $((expression)) syntax
-- **Complex Expressions**: Support for advanced mathematical operations including exponents, modulo, and bitwise operations
+- **Complex Expressions**: Support for advanced mathematical operations including exponents, modulo, and bitwise operation
+- **File execution**: Support for file execution like ```./your_script.sh``` and also you can use ```.nshrc``` and make it like a bash
 
 ### 🛡️ Robust Error Handling
 
@@ -71,9 +72,9 @@ make install
 ### System Requirements
 
 - **C++17** Compatible Compiler (GCC 7+, Clang 5+, or MSVC 2017+)
-· GNU Make or compatible build system
-· Readline Development Libraries
-· Standard UNIX Build Tools
+- GNU Make or compatible build system
+- Readline Development Libraries
+- Standard UNIX Build Tools
 
 ## 🎮 Quick Start Guide
 
@@ -134,9 +135,9 @@ Join our growing community of shell enthusiasts! As a project created by a young
 Current Version: *0.3.8.46* - Actively Developed
 
 - **Core Features**: Stable and functional
-· **Syntax Compatibility**: Expanding regularly
-· **Performance**: Continuously optimized (Beta)
-· **Documentation**: Growing with the project
+- **Syntax Compatibility**: Expanding regularly
+- **Performance**: Continuously optimized (Beta)
+- **Documentation**: Growing with the project
 
 ## 🐛 Reporting Issues
 

@@ -1,17 +1,34 @@
 # Nutshell-nsh
 
-**Date:** 2025-09-18 **Version:** 0.3.8.46
+**Date:** 2025-09-18 **Version:** 0.3.8.46 -> 0.3.8.49
+
+### bugs
+- Escaping backslash on continuation mode
+- Cannot execute relative path [FIXED]
+- Pipeline cannot execute builtin command [FIXED]
+- Assignment variable like ```VAR=/value``` is considered as a path execution
+- Alias Assignment
+- Bug when cd when having a CDPATH [FIXED]
+
+### To-be-changed/Coming
+- Hash output [CHANGED]
+- Hash hits count [ADDED]
 
 ### [+] Added
-- Added hash support
+- Added hash cache support
 - New builtin hash
+- Hash hits count
 
 ### [*] Fixed
 - Argv problems with command
 - Fix problem auto done input when using ctrl+c
-- Double expansion can't use command substitution or arithmetic expansion
+- Double quote expansion can't use command substitution or arithmetic expansion
 - Segmentation fault when using quotes
+- Fix cannot execute relative path
+- Pipeline cannot execute builtin command
+- Bug when cd when having a CDPATH
 
 ### [>] Changed
 - new README.md
+- Hash output
 - CHANGELOG.md
