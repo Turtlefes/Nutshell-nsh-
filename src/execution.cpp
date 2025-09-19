@@ -175,54 +175,66 @@ std::string find_binary(const std::string &cmd) {
 std::string find_binary(const std::string &cmd)
 {
     // Cek jika command adalah path relatif atau absolut
-    if (cmd.find('/') != std::string::npos) {
+    if (cmd.find('/') != std::string::npos)
+    {
         fs::path cmd_path(cmd);
-        
+
         // Jika path relatif (seperti ./script), ubah ke path absolut
-        if (cmd_path.is_relative()) {
+        if (cmd_path.is_relative())
+        {
             cmd_path = fs::absolute(cmd_path);
         }
-        
+
         // Verifikasi file exists dan executable
-        if (fs::exists(cmd_path) && fs::is_regular_file(cmd_path) && 
-            access(cmd_path.c_str(), X_OK) == 0) {
+        if (fs::exists(cmd_path) && fs::is_regular_file(cmd_path) &&
+            access(cmd_path.c_str(), X_OK) == 0)
+        {
             return cmd_path.string();
         }
-        
+
         return ""; // Tidak ditemukan atau tidak executable
     }
-    
+
     // Cek di hash table terlebih dahulu untuk command non-path
     auto is_hashed = binary_hash_loc.find(cmd);
-    if (is_hashed != binary_hash_loc.end()) {
+    if (is_hashed != binary_hash_loc.end())
+    {
         // Verify the cached path still exists and is executable
-        if (fs::exists(is_hashed->second.path) && fs::is_regular_file(is_hashed->second.path) && 
-            access(is_hashed->second.path.c_str(), X_OK) == 0) {
+        if (fs::exists(is_hashed->second.path) && fs::is_regular_file(is_hashed->second.path) &&
+            access(is_hashed->second.path.c_str(), X_OK) == 0)
+        {
             // TAMBAH HIT COUNT DI SINI
             binary_hash_loc[cmd].hits += 1;
             return is_hashed->second.path;
-        } else {
+        }
+        else
+        {
             // Remove invalid entry from hash table
             binary_hash_loc.erase(is_hashed);
+            return "";
         }
     }
-    
-    const char* path_env = std::getenv("PATH");
-    if (!path_env) return "";
-    
+
+    const char *path_env = std::getenv("PATH");
+    if (!path_env)
+        return "";
+
     std::string path_str = path_env;
     size_t start = 0, end;
-    
-    while ((end = path_str.find(':', start)) != std::string::npos) {
+
+    while ((end = path_str.find(':', start)) != std::string::npos)
+    {
         std::string dir = path_str.substr(start, end - start);
-        if (dir.empty()) {
+        if (dir.empty())
+        {
             start = end + 1;
             continue;
         }
-        
+
         fs::path binary_path = fs::path(dir) / cmd;
-        if (fs::exists(binary_path) && fs::is_regular_file(binary_path) && 
-            access(binary_path.c_str(), X_OK) == 0) {
+        if (fs::exists(binary_path) && fs::is_regular_file(binary_path) &&
+            access(binary_path.c_str(), X_OK) == 0)
+        {
             std::string abs_path = fs::absolute(binary_path).string();
             // TAMBAH KE HASH TABLE DENGAN HIT COUNT 1
             binary_hash_loc[cmd] = {abs_path, cmd, 1};
@@ -230,32 +242,36 @@ std::string find_binary(const std::string &cmd)
         }
         start = end + 1;
     }
-    
+
     // Cek direktori terakhir
     std::string dir = path_str.substr(start);
-    if (!dir.empty()) {
+    if (!dir.empty())
+    {
         fs::path binary_path = fs::path(dir) / cmd;
-        if (fs::exists(binary_path) && fs::is_regular_file(binary_path) && 
-            access(binary_path.c_str(), X_OK) == 0) {
+        if (fs::exists(binary_path) && fs::is_regular_file(binary_path) &&
+            access(binary_path.c_str(), X_OK) == 0)
+        {
             std::string abs_path = fs::absolute(binary_path).string();
             // TAMBAH KE HASH TABLE DENGAN HIT COUNT 1
             binary_hash_loc[cmd] = {abs_path, cmd, 1};
             return abs_path;
         }
     }
-    
+
     return "";
 }
 
-void launch_process(pid_t pgid, const SimpleCommand &cmd, bool foreground, const std::string& original_cmd_name = "") {
+void launch_process(pid_t pgid, const SimpleCommand &cmd, bool foreground, const std::string &original_cmd_name = "")
+{
     // Check if this is a builtin command in a child process
-    if (!cmd.tokens.empty() && is_builtin(cmd.tokens[0])) {
+    if (!cmd.tokens.empty() && is_builtin(cmd.tokens[0]))
+    {
         // Builtin in pipeline - execute and exit
         handle_redirection(cmd);
         int exit_code = execute_builtin(cmd);
         exit(exit_code);
     }
-    
+
     pid_t pid = getpid();
     if (pgid == 0)
         pgid = pid;
@@ -267,7 +283,8 @@ void launch_process(pid_t pgid, const SimpleCommand &cmd, bool foreground, const
     restore_terminal_mode();
 
     // Reset sinyal
-    for (int sig = 1; sig < NSIG; sig++) {
+    for (int sig = 1; sig < NSIG; sig++)
+    {
         if (sig == SIGKILL || sig == SIGSTOP)
             continue;
         signal(sig, SIG_DFL);
@@ -281,49 +298,107 @@ void launch_process(pid_t pgid, const SimpleCommand &cmd, bool foreground, const
 
     handle_redirection(cmd);
 
-    char** argv = static_cast<char**>(safe_malloc((cmd.tokens.size() + 1) * sizeof(char*)));
-    if (!argv) {
+    char **argv = static_cast<char **>(safe_malloc((cmd.tokens.size() + 1) * sizeof(char *)));
+    if (!argv)
+    {
+        std::cerr << "nsh: Memory allocation failed" << std::endl;
         exit(1);
     }
-    
-    try {
+
+    try
+    {
         // Gunakan nama asli command untuk argv[0]
-        if (!original_cmd_name.empty()) {
+        if (!original_cmd_name.empty())
+        {
             argv[0] = safe_strdup(original_cmd_name.c_str());
-        } else {
+        }
+        else
+        {
             // Untuk path, gunakan basename sebagai argv[0]
-            if (cmd.tokens[0].find('/') != std::string::npos) {
+            if (cmd.tokens[0].find('/') != std::string::npos)
+            {
                 fs::path cmd_path(cmd.tokens[0]);
                 argv[0] = safe_strdup(cmd_path.filename().c_str());
-            } else {
+            }
+            else
+            {
                 argv[0] = safe_strdup(cmd.tokens[0].c_str());
             }
         }
-        
+
         // Token lainnya tetap
-        for (size_t i = 1; i < cmd.tokens.size(); ++i) {
+        for (size_t i = 1; i < cmd.tokens.size(); ++i)
+        {
             argv[i] = safe_strdup(cmd.tokens[i].c_str());
         }
         argv[cmd.tokens.size()] = nullptr;
 
-        for (const auto &[var_name, value] : cmd.env_vars) {
-            if (cmd.exported_vars.find(var_name) != cmd.exported_vars.end()) {
+        for (const auto &[var_name, value] : cmd.env_vars)
+        {
+            if (cmd.exported_vars.find(var_name) != cmd.exported_vars.end())
+            {
                 setenv(var_name.c_str(), value.c_str(), 1);
             }
         }
 
         // Eksekusi dengan path absolut
         execv(cmd.tokens[0].c_str(), argv);
-        
-        // Error handling
-        std::cerr << "nsh: " << cmd.tokens[0] << ": " << strerror(errno) << std::endl;
-        exit(126);
 
-    } catch (const std::bad_alloc&) {
-        for (size_t i = 0; i < cmd.tokens.size() && argv[i]; ++i) {
+        // Error handling jika execv gagal
+        const std::string &error_cmd_name = original_cmd_name.empty() ? cmd.tokens[0] : original_cmd_name;
+        bool is_hashed = binary_hash_loc.count(error_cmd_name);
+        
+        if (is_hashed)
+        {
+          std::cerr << "nsh: hash invalid: " << error_cmd_name << " entry not found";
+          exit(126);
+        }
+
+        switch (errno)
+        {
+        case EACCES:
+            if (is_hashed)
+                std::cerr << "nsh: hash corrupted: " << error_cmd_name << ": Permission denied" << std::endl;
+            else
+                std::cerr << "nsh: " << error_cmd_name << ": Permission denied" << std::endl;
+            exit(126);
+        case ENOENT:
+            std::cerr << "nsh: " << error_cmd_name << ": No such file or directory" << std::endl;
+            exit(127);
+        case ENOEXEC:
+            if (is_hashed)
+                std::cerr << "nsh: hash corrupted: " << error_cmd_name << ": Exec format error" << std::endl;
+            else
+                std::cerr << "nsh: " << error_cmd_name << ": Exec format error" << std::endl;
+            exit(126);
+        case EISDIR:
+            if (is_hashed)
+                std::cerr << "nsh: hash corrupted: " << error_cmd_name << ": Is a directory" << std::endl;
+            else
+                std::cerr << "nsh: " << error_cmd_name << ": Is a directory" << std::endl;
+            exit(126);
+        case ENOTDIR:
+            std::cerr << "nsh: " << error_cmd_name << ": Not a directory" << std::endl;
+            exit(126);
+        case E2BIG:
+            std::cerr << "nsh: " << error_cmd_name << ": Argument list too long" << std::endl;
+            exit(126);
+        case ELOOP:
+            std::cerr << "nsh: " << error_cmd_name << ": Too many levels of symbolic links" << std::endl;
+            exit(126);
+        default:
+            std::cerr << "nsh: " << error_cmd_name << ": " << strerror(errno) << std::endl;
+            exit(126);
+        }
+    }
+    catch (const std::bad_alloc &)
+    {
+        for (size_t i = 0; i < cmd.tokens.size() && argv[i]; ++i)
+        {
             free(argv[i]);
         }
         free(argv);
+        std::cerr << "nsh: Memory allocation failed" << std::endl;
         exit(1);
     }
 }
@@ -488,142 +563,177 @@ int execute_builtin(const SimpleCommand &cmd)
     return last_exit_code;
 }
 
-int execute_job(const ParsedCommand &cmd_group) {
+int execute_job(const ParsedCommand &cmd_group)
+{
     if (cmd_group.pipeline.empty())
         return 0;
 
     // Handle builtin commands in pipeline
-    if (cmd_group.pipeline.size() == 1 && 
-        !cmd_group.pipeline[0].tokens.empty() && 
-        is_builtin(cmd_group.pipeline[0].tokens[0])) {
-        
+    if (cmd_group.pipeline.size() == 1 &&
+        !cmd_group.pipeline[0].tokens.empty() &&
+        is_builtin(cmd_group.pipeline[0].tokens[0]))
+    {
+
         const auto &simple_cmd = cmd_group.pipeline[0];
-        
+
         // Save original file descriptors
         int stdin_backup = dup(STDIN_FILENO);
         int stdout_backup = dup(STDOUT_FILENO);
-        
+
         // Apply redirection for the builtin
         handle_redirection(simple_cmd);
-        
+
         // Execute the builtin
         int code = execute_builtin(simple_cmd);
-        
+
         // Restore original file descriptors
         dup2(stdin_backup, STDIN_FILENO);
         dup2(stdout_backup, STDOUT_FILENO);
         close(stdin_backup);
         close(stdout_backup);
-        
+
         return code;
     }
 
     int in_fd = STDIN_FILENO, pipe_fd[2];
     pid_t pgid = 0;
     std::vector<pid_t> pids;
-    
+
     // Salin pipeline agar bisa dimodifikasi dan simpan nama command asli
     std::vector<SimpleCommand> pipeline_with_paths = cmd_group.pipeline;
     std::vector<std::string> original_cmd_names;
 
-    // Lakukan path resolution di parent
-    for (auto &simple_cmd : pipeline_with_paths) {
-        if (simple_cmd.tokens.empty() || is_builtin(simple_cmd.tokens[0])) {
+    // Lakukan path resolution di parent untuk memberikan error yang lebih baik
+    for (auto &simple_cmd : pipeline_with_paths)
+    {
+        if (simple_cmd.tokens.empty() || is_builtin(simple_cmd.tokens[0]))
+        {
             original_cmd_names.push_back(""); // Kosong untuk builtin
             continue;
         }
-        
+
         std::string original_name = simple_cmd.tokens[0];
-        
-        // Cek jika ini adalah path (absolut atau relatif)
-        if (original_name.find('/') != std::string::npos) {
-            fs::path cmd_path(original_name);
-            
-            // Jika path relatif, ubah ke absolut
-            if (cmd_path.is_relative()) {
-                cmd_path = fs::absolute(cmd_path);
+        std::string binary_path;
+
+        // Jika command adalah path eksplisit (mengandung '/')
+        if (original_name.find('/') != std::string::npos)
+        {
+            struct stat path_stat;
+            if (stat(original_name.c_str(), &path_stat) != 0)
+            {
+                std::cerr << "nsh: " << original_name << ": " << strerror(errno) << std::endl;
+                return (errno == ENOENT) ? 127 : 126;
             }
-            
-            // Verifikasi file exists dan executable
-            if (fs::exists(cmd_path) && fs::is_regular_file(cmd_path) && access(cmd_path.c_str(), X_OK) == 0) {
-                simple_cmd.tokens[0] = cmd_path.string();
-                original_cmd_names.push_back(original_name);
-                continue;
-            } else {
-                std::cerr << "nsh: " << original_name << ": command not found or not executable" << std::endl;
+
+            if (S_ISDIR(path_stat.st_mode))
+            {
+                std::cerr << "nsh: " << original_name << ": Is a directory" << std::endl;
+                return 126;
+            }
+
+            if (access(original_name.c_str(), X_OK) != 0)
+            {
+                if (errno == ELOOP)
+                    std::cerr << "nsh: " << original_name << ": Too many levels of symbolic links" << std::endl;
+                else
+                    std::cerr << "nsh: " << original_name << ": Permission denied" << std::endl;
+                return 126;
+            }
+            binary_path = fs::absolute(original_name).string();
+        }
+        else
+        {
+            // Jika bukan path, cari menggunakan find_binary (yang juga menangani hash)
+            binary_path = find_binary(original_name);
+
+            if (binary_path.empty())
+            {
+                std::cerr << "nsh: " << original_name << ": command not found" << std::endl;
                 return 127;
             }
         }
-        
-        // Untuk non-path commands, gunakan find_binary biasa
-        std::string binary_path = find_binary(original_name);
-        
-        if (binary_path.empty()) {
-            std::cerr << "nsh: " << original_name << ": command not found" << std::endl;
-            return 127;
-        }
-        
         simple_cmd.tokens[0] = binary_path;
         original_cmd_names.push_back(original_name);
     }
 
-    for (size_t i = 0; i < pipeline_with_paths.size(); ++i) {
+    for (size_t i = 0; i < pipeline_with_paths.size(); ++i)
+    {
         const auto &simple_cmd = pipeline_with_paths[i];
         const std::string &original_name = original_cmd_names[i];
         bool is_last = (i == pipeline_with_paths.size() - 1);
 
-        if (!is_last) {
-            if (pipe(pipe_fd) < 0) {
-                perror("pipe");
+        if (!is_last)
+        {
+            if (pipe(pipe_fd) < 0)
+            {
+                if (errno == EMFILE)
+                    std::cerr << "nsh: pipe: Too many open files" << std::endl;
+                else
+                    perror("nsh: pipe");
                 return 1;
             }
         }
 
         pid_t pid = fork();
-        if (pid < 0) {
-            perror("fork");
+        if (pid < 0)
+        {
+            if (errno == EAGAIN)
+                std::cerr << "nsh: fork: Resource temporarily unavailable" << std::endl;
+            else if (errno == ENOMEM)
+                std::cerr << "nsh: fork: Cannot allocate memory" << std::endl;
+            else
+                perror("nsh: fork");
             return 1;
         }
 
-        if (pid == 0) { 
-            if (in_fd != STDIN_FILENO) {
+        if (pid == 0)
+        {
+            if (in_fd != STDIN_FILENO)
+            {
                 dup2(in_fd, STDIN_FILENO);
                 close(in_fd);
             }
-            if (!is_last) {
+            if (!is_last)
+            {
                 close(pipe_fd[0]);
                 dup2(pipe_fd[1], STDOUT_FILENO);
                 close(pipe_fd[1]);
             }
-            //launch_process(pgid, simple_cmd, !cmd_group.background, original_name);
-            
+
             if (!simple_cmd.tokens.empty() && is_builtin(simple_cmd.tokens[0]))
             {
-              int exit_code = execute_builtin(simple_cmd);
-              exit(exit_code);
-            } else {
-              launch_process(pgid, simple_cmd, !cmd_group.background, original_name);
+                int exit_code = execute_builtin(simple_cmd);
+                exit(exit_code);
             }
-        } else { 
+            else
+            {
+                launch_process(pgid, simple_cmd, !cmd_group.background, original_name);
+            }
+        }
+        else
+        {
             pids.push_back(pid);
             if (pgid == 0)
                 pgid = pid;
             setpgid(pid, pgid);
             if (in_fd != STDIN_FILENO)
                 close(in_fd);
-            if (!is_last) {
+            if (!is_last)
+            {
                 close(pipe_fd[1]);
                 in_fd = pipe_fd[0];
             }
         }
     }
-    
+
     if (in_fd != STDIN_FILENO)
         close(in_fd);
 
-    if (cmd_group.background) {
+    if (cmd_group.background)
+    {
         std::string command_str;
-        for (const auto &sc : cmd_group.pipeline) {
+        for (const auto &sc : cmd_group.pipeline)
+        {
             for (const auto &token : sc.tokens)
                 command_str += token + " ";
             if (&sc != &cmd_group.pipeline.back())
@@ -633,18 +743,23 @@ int execute_job(const ParsedCommand &cmd_group) {
         std::cout << "[" << next_job_id << "] " << pgid << std::endl;
         next_job_id++;
         return 0;
-    } else {
+    }
+    else
+    {
         foreground_pgid = pgid;
         int status = 0;
-        for (size_t i = 0; i < pids.size(); ++i) {
+        for (size_t i = 0; i < pids.size(); ++i)
+        {
             int current_status;
             waitpid(pids[i], &current_status, WUNTRACED);
             if (i == pids.size() - 1)
                 status = current_status;
         }
-        if (WIFSTOPPED(status)) {
+        if (WIFSTOPPED(status))
+        {
             std::string command_str;
-            for (const auto &sc : cmd_group.pipeline) {
+            for (const auto &sc : cmd_group.pipeline)
+            {
                 for (const auto &token : sc.tokens)
                     command_str += token + " ";
                 if (&sc != &cmd_group.pipeline.back())
@@ -663,7 +778,6 @@ int execute_job(const ParsedCommand &cmd_group) {
         return 1;
     }
 }
-
 
 
 int execute_command_list(const std::vector<ParsedCommand> &commands)
