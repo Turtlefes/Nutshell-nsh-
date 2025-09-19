@@ -85,14 +85,14 @@ Once installed, launch nsh and experience the difference:
 nsh
 
 # Try advanced features
-echo "Math result: $((3 * (2^2 + 1)))"
+echo "Math result: $((3 * (2**2 + 1)))"
 # Output: Math result: 15
 
 # Use command substitution
 echo "Today is $(date +%A)"
 # Output: Today is [current day]
 
-# Experience readline goodness with tab completion!
+# Experience more feature as far as you can!
 ```
 
 ## 🌟 Why Choose Nutshell?

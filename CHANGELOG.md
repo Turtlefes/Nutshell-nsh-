@@ -1,6 +1,6 @@
 # Nutshell-nsh
 
-**Date:** 2025-09-18 **Version:** 0.3.8.46 -> 0.3.8.49
+**Date:** 2025-09-18 -> 2025-09-19 **Version:** 0.3.8.46 -> 0.3.8.54
 
 ### bugs
 - Escaping backslash on continuation mode
@@ -18,6 +18,7 @@
 - Added hash cache support
 - New builtin hash
 - Hash hits count
+- More error handling on execution
 
 ### [*] Fixed
 - Argv problems with command
