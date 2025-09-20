@@ -51,10 +51,8 @@ private:
 
     
     // Helper function untuk membersihkan end_of_file_in backslash
-    std::string clean_end_of_file_in_line(std::string line) const;
     
     void expand_aliases(std::vector<Token> &tokens);
-    std::string remove_comments(const std::string &input); // Fungsi baru untuk menghapus komentar
 };
 
 #endif // PARSER_H
