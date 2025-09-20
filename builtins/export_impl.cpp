@@ -122,20 +122,20 @@ void handle_builtin_export(const std::vector<std::string> &tokens)
         if (eq_pos != std::string::npos)
         {
             auto [var_name, value] = parse_env_assignment(token);
-            setenv(var_name.c_str(), value.c_str(), 1);
+            set_env_var(var_name, value, true);
         }
         else
         {
-            const char *value = getenv(token.c_str());
-            if (value)
-            {
-                setenv(token.c_str(), value, 1);
-            }
-            else
-            {
-                std::cerr << "nsh: export: " << token << ": variable not found" << std::endl;
-                last_exit_code = 1;
-            }
+          const char* value = getenv(token.c_str());
+          if (value)
+          {
+            set_env_var(token, value, true);
+          }
+          else
+          {
+            std::cerr << "nsh: export: " << token << " variable not found" << std::endl;
+            last_exit_code = 1;
+          }
         }
     }
     last_exit_code = 0;

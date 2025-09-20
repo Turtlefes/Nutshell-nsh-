@@ -48,6 +48,14 @@ void safe_print(const std::string &text)
     }
 }
 
+std::string trim(const std::string& str) {
+    size_t start = str.find_first_not_of(" \t\n\r");
+    if (start == std::string::npos) return "";
+    
+    size_t end = str.find_last_not_of(" \t\n\r");
+    return str.substr(start, end - start + 1);
+}
+
 std::string rtrim(const std::string& s) {
     std::string result = s;
     result.erase(std::find_if(result.rbegin(), result.rend(), 
@@ -56,7 +64,7 @@ std::string rtrim(const std::string& s) {
     return result;
 }
 
-bool ends_with_continuation_operator(const std::string &line)
+bool ends_with_end_of_file_in_operator(const std::string &line)
 {
     std::string trimmed_line = rtrim(line);
     if (trimmed_line.empty())

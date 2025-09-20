@@ -51,13 +51,24 @@ extern std::vector<std::string> command_history;
 extern size_t history_index;
 extern int last_exit_code;
 extern char **environ;
-extern volatile sig_atomic_t continuation_interrupt;
+extern volatile sig_atomic_t end_of_file_in_interrupt;
 struct binary_hash_info {
     std::string path;
     std::string command_name;
     size_t hits = 0;
 };
 extern std::unordered_map<std::string, binary_hash_info> binary_hash_loc;
+
+// --- Environ management ---
+void set_env_var(const std::string& name, const std::string& value, bool is_exported = false);
+void unset_env_var(const std::string& name);
+const char* get_env_var(const std::string& name);
+struct var_info {
+  std::string value;
+  bool is_exported;
+  bool is_default;
+};
+extern std::unordered_map<std::string, var_info> environ_map;
 
 // --- Job Control Structures ---
 enum class JobStatus { RUNNING, STOPPED };

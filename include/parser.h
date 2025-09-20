@@ -43,16 +43,16 @@ public:
     std::vector<ParsedCommand> parse(const std::string &input);
     // Method untuk mendapatkan input multiline
     std::string get_multiline_input(const std::string& initial_prompt);
-    // Helper function untuk mendeteksi apakah baris memerlukan continuation
-    bool needs_continuation(const std::string& line) const;
+    // Helper function untuk mendeteksi apakah baris memerlukan end_of_file_in
+    bool needs_end_of_file_in(const std::string& line) const;
+    std::vector<Token> tokenize(const std::string &input) const;
 
 private:
 
     
-    // Helper function untuk membersihkan continuation backslash
-    std::string clean_continuation_line(std::string line) const;
+    // Helper function untuk membersihkan end_of_file_in backslash
+    std::string clean_end_of_file_in_line(std::string line) const;
     
-    std::vector<Token> tokenize(const std::string &input) const;
     void expand_aliases(std::vector<Token> &tokens);
     std::string remove_comments(const std::string &input); // Fungsi baru untuk menghapus komentar
 };

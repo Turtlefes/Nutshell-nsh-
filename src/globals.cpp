@@ -2,7 +2,7 @@
 
 // --- Shell Information ---
 const char *const shell_version   = "0.3.8";
-const char *const shell_version_long = "0.3.8.54";
+const char *const shell_version_long = "0.3.8.56";
 const char *const ext_shell_name  = "nsh";
 const char *const release_date    = "2025";
 const char *const COPYRIGHT       = "Copyright (c) 2025 Turtlefes. Bayu Setiawan";
@@ -36,8 +36,55 @@ std::vector<std::string> command_history;
 size_t history_index = 0;
 int last_exit_code = 0;
 char **environ = nullptr;
-volatile sig_atomic_t continuation_interrupt = 0;
+volatile sig_atomic_t end_of_file_in_interrupt = 0;
 std::unordered_map<std::string, binary_hash_info> binary_hash_loc;
+
+// --- Environment management
+void set_env_var(const std::string& name, const std::string& value, bool is_exported)
+{
+  // Check if this variable already exists as a default
+  bool is_default = false;
+  auto it = environ_map.find(name);
+  if (it != environ_map.end()) {
+    is_default = it->second.is_default;
+  }
+  
+  environ_map[name] = {value, is_exported, is_default};
+  
+  if (is_exported)
+  {
+    // set traditional
+    setenv(name.c_str(), value.c_str(), 1);
+  }
+  else
+  {
+    // Only set in environ_map, not in traditional
+    unsetenv(name.c_str());
+  }
+}
+void unset_env_var(const std::string& name)
+{
+  auto it = environ_map.find(name);
+  if (it != environ_map.end()) {
+    // Don't remove default variables, just clear their values
+    if (it->second.is_default) {
+      environ_map[name] = {"", false, true}; // Keep as default but empty
+    } else {
+      environ_map.erase(name);
+    }
+  }
+  unsetenv(name.c_str());
+}
+const char* get_env_var(const std::string& name)
+{
+  auto it = environ_map.find(name);
+  if (it != environ_map.end())
+  {
+    return it->second.value.c_str();
+  }
+  return getenv(name.c_str()); // fallback to traditional environ
+}
+std::unordered_map<std::string, var_info> environ_map;
 
 // --- Job Control ---
 std::map<int, Job> jobs;

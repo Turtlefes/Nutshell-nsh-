@@ -11,6 +11,35 @@
 #include <readline/readline.h>
 #include <readline/history.h>
 
+extern char **environ; // environ global, deklarasi
+
+/*
+
+------- Dummy 2
+---- Dummy 1
+**[ENVIRON]
+**[ENV]
+*/
+
+void get_default_environment()
+{
+  // Iterate through the traditional environ array
+  for (char **env = environ; *env != nullptr; ++env)
+  {
+    std::string env_str(*env);
+    size_t eq_pos = env_str.find('=');
+    
+    if (eq_pos != std::string::npos)
+    {
+      std::string name = env_str.substr(0, eq_pos);
+      std::string value = env_str.substr(eq_pos + 1);
+      
+      // Add to environ_map with default flag set to true
+      environ_map[name] = {value, true, true};
+    }
+  }
+}
+
 void initialize_environment()
 {
     const char *home_env = getenv("HOME");
@@ -27,6 +56,8 @@ void initialize_environment()
             exit(EXIT_FAILURE);
         }
     }
+    
+    get_default_environment();
 
     const char *pwd_env = getenv("PWD");
     LOGICAL_PWD = (pwd_env && fs::exists(pwd_env)) ? fs::path(pwd_env).lexically_normal() : fs::current_path();
@@ -39,7 +70,7 @@ void initialize_environment()
     ns_ALIAS_FILE = ns_CONFIG_DIR / "alias";
     ns_BOOKMARK_FILE = ns_CONFIG_DIR / "bookmarks";
     ETCDIR = ns_CONFIG_DIR;
-
+    
     try
     {
         if (!fs::exists(ns_CONFIG_DIR))

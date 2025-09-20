@@ -60,8 +60,8 @@ std::string shorten_path(const fs::path &p) {
     return path_str;
 }
 
-std::string get_prompt_string(bool continuation) {
-    if (continuation) return "> ";
+std::string get_prompt_string(bool end_of_file_in) {
+    if (end_of_file_in) return "> ";
 
     std::string ps1_string;
     const char* ps1_env = getenv("PS1");

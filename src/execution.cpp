@@ -9,6 +9,7 @@
 #include <fcntl.h>
 #include <cstring>
 #include <csignal>
+#include <cstdlib>
 #include <utils.h>
 #include <filesystem>
 #include <unistd.h>
@@ -261,6 +262,22 @@ std::string find_binary(const std::string &cmd)
     return "";
 }
 
+std::vector<char*> build_envp()
+{
+  std::vector<char*> envp;
+  
+  for (const auto& pair : environ_map)
+  {
+    if (pair.second.is_exported && !pair.second.value.empty())
+    {
+      std::string env_entry = pair.first + '=' + pair.second.value;
+      envp.push_back(safe_strdup(env_entry.c_str()));
+    }
+  }
+  envp.push_back(nullptr);
+  return envp;
+}
+
 void launch_process(pid_t pgid, const SimpleCommand &cmd, bool foreground, const std::string &original_cmd_name = "")
 {
     // Check if this is a builtin command in a child process
@@ -340,9 +357,16 @@ void launch_process(pid_t pgid, const SimpleCommand &cmd, bool foreground, const
                 setenv(var_name.c_str(), value.c_str(), 1);
             }
         }
+        
+        std::vector<char*> envp = build_envp();
 
         // Eksekusi dengan path absolut
-        execv(cmd.tokens[0].c_str(), argv);
+        execve(cmd.tokens[0].c_str(), argv, envp.data());
+        
+        // Safe memory, cleanup
+        for (char* env : envp) {
+          free(env);
+        }
 
         // Error handling jika execv gagal
         const std::string &error_cmd_name = original_cmd_name.empty() ? cmd.tokens[0] : original_cmd_name;

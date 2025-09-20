@@ -641,19 +641,15 @@ bool Parser::needs_end_of_file_in(const std::string& line) const {
     std::string trimmed_line = rtrim(line);
     if (trimmed_line.empty()) return false;
     
-    // Check for backslash end_of_file_in - only if backslash is the last non-whitespace character
-    // and it's not part of an escape sequence
-    if (!trimmed_line.empty() && trimmed_line.back() == '\\') {
-        // Count the number of consecutive backslashes at the end
-        size_t backslash_count = 0;
-        for (auto it = trimmed_line.rbegin(); it != trimmed_line.rend() && *it == '\\'; ++it) {
-            backslash_count++;
-        }
-        
-        // If odd number of backslashes, then it's a true end_of_file_in (not escaped)
-        if (backslash_count % 2 == 1) {
-            return true;
-        }
+    // Check for backslash end_of_file_in (odd number of backslashes at end)
+    size_t backslash_count = 0;
+    for (auto it = trimmed_line.rbegin(); it != trimmed_line.rend() && *it == '\\'; ++it) {
+        backslash_count++;
+    }
+    
+    // Jika jumlah backslash ganjil, maka ini end_of_file_in
+    if (backslash_count % 2 == 1) {
+        return true;
     }
     
     // Check for operators that require end_of_file_in
@@ -786,19 +782,16 @@ std::string Parser::get_multiline_input(const std::string& initial_prompt) {
     std::string current_prompt = initial_prompt;
     bool end_of_file_in = false;
     std::vector<std::string> end_of_file_in_lines;
-    size_t end_of_file_in_position = 0;
-    bool end_of_file_in_by_operator = false;
+
+    std::string wrapped_prompt = wrap_prompt_for_readline(current_prompt);
 
     do {
-        // Handle readline setup
         safe_set_cooked_mode();
         rl_save_prompt();
         
-        std::string wrapped_prompt = wrap_prompt_for_readline(current_prompt);
         char* line_read = readline(wrapped_prompt.c_str());
         safe_set_raw_mode();
 
-        // Handle Ctrl-D (EOF)
         if (line_read == nullptr) {
             if (full_input.empty()) {
                 std::cout << "exit" << std::endl;
@@ -813,67 +806,23 @@ std::string Parser::get_multiline_input(const std::string& initial_prompt) {
         free(line_read);
 
         if (!line.empty() || end_of_file_in) {
-            if (end_of_file_in) {
-                // Ini adalah baris end_of_file_in
-                if (end_of_file_in_by_operator) {
-                    // Untuk end_of_file_in oleh operator, cukup append dengan spasi
-                    if (!full_input.empty() && full_input.back() != ' ') {
-                        full_input += " ";
-                    }
-                    full_input += line;
-                } else {
-                    // Untuk end_of_file_in oleh backslash, gunakan logika overwrite
-                    if (end_of_file_in_position < full_input.length()) {
-                        // Hapus teks dari posisi backslash sampai akhir
-                        full_input = full_input.substr(0, end_of_file_in_position);
-                        // Append teks end_of_file_in
-                        full_input += line;
-                    }
-                }
-            } else {
-                // Baris pertama
-                full_input = line;
+            // Handle backslash end_of_file_in - remove trailing backslash
+            if (end_of_file_in && !line.empty() && line.back() == '\\') {
+                line = line.substr(0, line.length() - 1);
+                line = rtrim(line);
             }
             
             end_of_file_in_lines.push_back(line);
-            
-            // Check for end_of_file_in menggunakan fungsi needs_end_of_file_in
+            full_input += line;
+
+            // Check for end_of_file_in
             end_of_file_in = needs_end_of_file_in(line);
-            end_of_file_in_position = 0;
-            end_of_file_in_by_operator = false;
             
             if (end_of_file_in) {
-                // Deteksi jenis end_of_file_in
-                std::vector<Token> tokens = tokenize(line);
-                if (!tokens.empty()) {
-                    const Token& last_token = tokens.back();
-                    end_of_file_in_by_operator = (last_token.type == TokenType::PIPE ||
-                                              last_token.type == TokenType::AND_IF ||
-                                              last_token.type == TokenType::OR_IF ||
-                                              last_token.type == TokenType::LESS ||
-                                              last_token.type == TokenType::GREAT ||
-                                              last_token.type == TokenType::DGREAT ||
-                                              last_token.type == TokenType::LESSLESS ||
-                                              last_token.type == TokenType::LESSLESSLESS);
-                }
-                
-                if (end_of_file_in_by_operator) {
-                    // Untuk operator, simpan posisi di akhir (untuk append biasa)
-                    end_of_file_in_position = full_input.length();
-                } else {
-                    // Untuk backslash, simpan posisi backslash
-                    end_of_file_in_position = full_input.length();
-                    
-                    size_t backslash_count = 0;
-                    for (auto it = line.rbegin(); it != line.rend() && *it == '\\'; ++it) {
-                        backslash_count++;
-                    }
-                    if (backslash_count > 0) {
-                        end_of_file_in_position = full_input.length() - backslash_count;
-                    }
-                }
-                
                 current_prompt = "> ";
+                wrapped_prompt = wrap_prompt_for_readline(current_prompt);
+            } else {
+                full_input += " "; // Add space between continued lines
             }
         } else if (line.empty() && !end_of_file_in) {
             full_input = "";
@@ -883,17 +832,35 @@ std::string Parser::get_multiline_input(const std::string& initial_prompt) {
         
     } while (end_of_file_in);
     
-    // Handle history entry
+    // Trim trailing space
+    if (!full_input.empty() && full_input.back() == ' ') {
+        full_input.pop_back();
+    }
+    
     if (!full_input.empty()) {
-        std::string history_entry = full_input;
+        std::string history_entry;
+        for (size_t i = 0; i < end_of_file_in_lines.size(); i++) {
+            if (i > 0) {
+                history_entry += " ";
+            }
+            
+            // Untuk baris end_of_file_in, hapus backslash di akhir
+            std::string cleaned_line = end_of_file_in_lines[i];
+            if (i < end_of_file_in_lines.size() - 1 && !cleaned_line.empty() && cleaned_line.back() == '\\') {
+                cleaned_line = cleaned_line.substr(0, cleaned_line.length() - 1);
+                cleaned_line = rtrim(cleaned_line);
+            }
+            
+            history_entry += cleaned_line;
+        }
         
-        // Hapus semua baris individual dari history
+        // Clean individual lines from history
         for (const auto& line : end_of_file_in_lines) {
             if (!line.empty()) {
                 HIST_ENTRY** hist_list = history_list();
                 if (hist_list) {
                     for (int i = 0; hist_list[i]; i++) {
-                        if (std::string(hist_list[i]->line) == line) {
+                        if (hist_list[i]->line == line) {
                             remove_history(i);
                             break;
                         }
@@ -902,22 +869,7 @@ std::string Parser::get_multiline_input(const std::string& initial_prompt) {
             }
         }
         
-        // Clean up trailing backslashes from end_of_file_in
-        size_t trimmed_len = full_input.find_last_not_of(" \t\n\r");
-        if (trimmed_len != std::string::npos && full_input[trimmed_len] == '\\') {
-            // Find the start of the backslash sequence
-            size_t backslash_start = trimmed_len;
-            while (backslash_start > 0 && full_input[backslash_start - 1] == '\\') {
-                backslash_start--;
-            }
-            // If there's an odd number of backslashes, remove the last one
-            if ((trimmed_len - backslash_start + 1) % 2 == 1) {
-                full_input.erase(trimmed_len, 1);
-            }
-        }
-        
-        // Tambahkan history entry yang sudah dibersihkan
-        add_history(full_input.c_str());
+        add_history(history_entry.c_str());
     }
 
     return full_input;

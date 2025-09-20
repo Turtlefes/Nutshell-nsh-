@@ -3,6 +3,6 @@
 
 #include <string>
 
-std::string get_prompt_string(bool continuation = false);
+std::string get_prompt_string(bool end_of_file_in = false);
 
 #endif // PROMPT_H

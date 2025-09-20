@@ -248,7 +248,7 @@ void handle_builtin_hash(const std::vector<std::string> &tokens)
         }
 
         // Show summary jika diminta atau jika tidak ada format khusus
-        if (show_summary || (!list_format && !terse_format))
+        if (show_summary)
         {
             size_t total_hits = 0;
             for (const auto &[cmd, info] : binary_hash_loc)
