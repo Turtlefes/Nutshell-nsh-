@@ -51,7 +51,7 @@ extern std::vector<std::string> command_history;
 extern size_t history_index;
 extern int last_exit_code;
 extern char **environ;
-extern volatile sig_atomic_t end_of_file_in_interrupt;
+extern volatile sig_atomic_t EOF_IN_interrupt;
 struct binary_hash_info {
     std::string path;
     std::string command_name;

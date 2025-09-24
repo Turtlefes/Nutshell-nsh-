@@ -64,7 +64,7 @@ std::string rtrim(const std::string& s) {
     return result;
 }
 
-bool ends_with_end_of_file_in_operator(const std::string &line)
+bool ends_with_EOF_IN_operator(const std::string &line)
 {
     std::string trimmed_line = rtrim(line);
     if (trimmed_line.empty())
@@ -130,6 +130,13 @@ size_t visible_width(const std::string &s)
         }
     }
     return width;
+}
+
+unsigned int xrand(unsigned int seed, int min, int max)
+{
+  unsigned int results = 1103515245U * seed + 12345U;
+  results = (results % (max - min + 1) + min);
+  return results;
 }
 
 void clear_screen() {

@@ -1,5 +1,5 @@
 #include "globals.h"
-
+//#
 // --- Shell Information ---
 const char *const shell_version   = "0.3.8";
 const char *const shell_version_long = "0.3.8.56";
@@ -36,7 +36,7 @@ std::vector<std::string> command_history;
 size_t history_index = 0;
 int last_exit_code = 0;
 char **environ = nullptr;
-volatile sig_atomic_t end_of_file_in_interrupt = 0;
+volatile sig_atomic_t EOF_IN_interrupt = 0;
 std::unordered_map<std::string, binary_hash_info> binary_hash_loc;
 
 // --- Environment management

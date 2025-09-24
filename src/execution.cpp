@@ -140,39 +140,6 @@ void handle_redirection(const SimpleCommand &cmd)
     }
 }
 
-
-
-/*
-std::string find_binary(const std::string &cmd) {
-    const char* path_env = std::getenv("PATH");
-    if (!path_env) return "";
-
-    std::string path_str(path_env);
-    size_t start = 0, end;
-
-    while ((end = path_str.find(':', start)) != std::string::npos) {
-        std::string dir = path_str.substr(start, end - start);
-        fs::path p = fs::path(dir) / cmd;
-        if (fs::exists(p) && fs::is_regular_file(p) &&
-            ((fs::status(p).permissions() & fs::perms::owner_exec) != fs::perms::none)) {
-            return p.string();
-        }
-        start = end + 1;
-    }
-
-    // cek direktori terakhir setelah ':'
-    std::string dir = path_str.substr(start);
-    fs::path p = fs::path(dir) / cmd;
-    if (fs::exists(p) && fs::is_regular_file(p) &&
-        ((fs::status(p).permissions() & fs::perms::owner_exec) != fs::perms::none)) {
-        return p.string();
-    }
-
-    return ""; // tidak ketemu
-}
-*/
-
-
 std::string find_binary(const std::string &cmd)
 {
     // Cek jika command adalah path relatif atau absolut
@@ -211,6 +178,7 @@ std::string find_binary(const std::string &cmd)
         else
         {
             // Remove invalid entry from hash table
+            std::cerr << "nsh: hash invalid: " << cmd << " entry not found" << std::endl;
             binary_hash_loc.erase(is_hashed);
             return "";
         }
@@ -262,20 +230,26 @@ std::string find_binary(const std::string &cmd)
     return "";
 }
 
-std::vector<char*> build_envp()
-{
-  std::vector<char*> envp;
-  
-  for (const auto& pair : environ_map)
-  {
-    if (pair.second.is_exported && !pair.second.value.empty())
-    {
-      std::string env_entry = pair.first + '=' + pair.second.value;
-      envp.push_back(safe_strdup(env_entry.c_str()));
+std::vector<char*> build_envp() {
+    std::vector<char*> envp;
+    
+    for (const auto& pair : environ_map) {
+        if (pair.second.is_exported && !pair.second.value.empty()) {
+            std::string env_entry = pair.first + '=' + pair.second.value;
+            char* dup_str = safe_strdup(env_entry.c_str());
+            if (!dup_str) {
+                // Cleanup already allocated strings before returning
+                for (char* env : envp) {
+                    free(env);
+                }
+                std::cerr << "nsh: Memory allocation failed for environment" << std::endl;
+                return {nullptr};
+            }
+            envp.push_back(dup_str);
+        }
     }
-  }
-  envp.push_back(nullptr);
-  return envp;
+    envp.push_back(nullptr);
+    return envp;
 }
 
 void launch_process(pid_t pgid, const SimpleCommand &cmd, bool foreground, const std::string &original_cmd_name = "")
@@ -371,12 +345,6 @@ void launch_process(pid_t pgid, const SimpleCommand &cmd, bool foreground, const
         // Error handling jika execv gagal
         const std::string &error_cmd_name = original_cmd_name.empty() ? cmd.tokens[0] : original_cmd_name;
         bool is_hashed = binary_hash_loc.count(error_cmd_name);
-        
-        if (is_hashed)
-        {
-          std::cerr << "nsh: hash invalid: " << error_cmd_name << " entry not found";
-          exit(126);
-        }
 
         switch (errno)
         {
@@ -686,16 +654,35 @@ int execute_job(const ParsedCommand &cmd_group)
         const std::string &original_name = original_cmd_names[i];
         bool is_last = (i == pipeline_with_paths.size() - 1);
 
-        if (!is_last)
-        {
-            if (pipe(pipe_fd) < 0)
-            {
-                if (errno == EMFILE)
-                    std::cerr << "nsh: pipe: Too many open files" << std::endl;
-                else
-                    perror("nsh: pipe");
-                return 1;
+        if (!is_last) {
+          if (pipe(pipe_fd) < 0) {
+            // Cleanup resources sebelum return
+            if (in_fd != STDIN_FILENO) close(in_fd);
+              for (pid_t existing_pid : pids) {
+              kill(existing_pid, SIGKILL);  // Cleanup any already forked processes
+              }
+        
+            switch (errno) {
+              case EPIPE:
+                std::cerr << "nsh: pipe: broken pipe" << std::endl;
+                break;
+              case EMFILE:
+                std::cerr << "nsh: pipe: too many open files" << std::endl;
+                break;
+              case ENFILE:
+                std::cerr << "nsh: pipe: system file table overflow" << std::endl;
+                break;
+              case EFAULT:
+                std::cerr << "nsh: pipe: invalid pipe buffer address" << std::endl;
+                break;
+              case ENOMEM:
+                std::cerr << "nsh: pipe: cannot allocate memory" << std::endl;
+                break;
+              default:
+                perror("nsh: pipe");
             }
+            return 1;
+          }
         }
 
         pid_t pid = fork();

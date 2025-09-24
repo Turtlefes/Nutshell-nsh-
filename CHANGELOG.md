@@ -3,7 +3,7 @@
 **Date:** 2025-09-18 -> 2025-09-19 **Version:** 0.3.8.46 -> 0.3.8.54
 
 ### bugs
-- Escaping backslash on end_of_file_in mode [FIXED]
+- Escaping backslash on EOF_IN mode [FIXED]
 - Cannot execute relative path [FIXED]
 - Pipeline cannot execute builtin command [FIXED]
 - Assignment variable like ```VAR=/value``` is considered as a path execution
@@ -28,7 +28,7 @@
 - Fix cannot execute relative path
 - Pipeline cannot execute builtin command
 - Bug when cd when having a CDPATH
-- Escaping backslash on end_of_file_in mode
+- Escaping backslash on EOF_IN mode
 
 ### [>] Changed
 - new README.md

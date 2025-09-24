@@ -226,7 +226,7 @@ void run_interactive_shell() {
         safe_set_raw_mode();
         //tcflush(STDIN_FILENO, TCIFLUSH);
 
-        std::string main_prompt = get_prompt_string(false);
+        std::string main_prompt = get_prompt_string();
         
         // Gunakan parser untuk mendapatkan input multiline
         std::string full_input = parser.get_multiline_input(main_prompt);

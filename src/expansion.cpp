@@ -2,6 +2,7 @@
 #include "execution.h"
 #include "globals.h"
 #include "parser.h"
+#include "utils.h"
 
 #include <iostream>
 #include <string>
@@ -403,6 +404,9 @@ std::string expand_argument(const std::string &token)
     bool in_single_quote = false;
     bool in_double_quote = false;
     bool escaped = false;
+    
+    // ADD: Variabel untuk menghasilkan angka random yang konsisten dalam satu ekspansi
+    static unsigned int random_seed = static_cast<unsigned int>(time(nullptr)) + getpid();
 
     for (size_t i = 0; i < token.length(); ++i)
     {
@@ -459,14 +463,43 @@ std::string expand_argument(const std::string &token)
                 continue;
             }
 
-            if (token[start] == '{')
+            // ADD: Handle $RANDOM khusus
+            if (token.compare(start, 5, "RANDOM") == 0 && 
+                (start + 5 >= token.length() || !isalnum(token[start + 5]) && token[start + 5] != '_'))
+            {
+                // Generate random number between 0 and 32767 (matching Bash behavior)
+                random_seed = xrand(random_seed, 0, 32767);
+                result += std::to_string(random_seed);
+                i = start + 5;
+            }
+            else if (token.compare(start, 3, "UID") == 0 && 
+                (start + 3 >= token.length() || !isalnum(token[start + 3]) && token[start +3] != '_'))
+            {
+              uid_t uid = getuid();
+              result += std::to_string(uid);
+              i = start + 3;
+            }
+            else if (token.compare(start, 4, "EUID") == 0 && 
+                (start + 4 >= token.length() || !isalnum(token[start + 4]) && token[start + 4] != '_'))
+            {
+              uid_t euid = geteuid();
+              result += std::to_string(euid);
+              i = start + 4;
+            }
+            else if (token[start] == '{')
             {
                 size_t end = token.find('}', start);
                 if (end != std::string::npos)
                 {
                     std::string var_name = token.substr(start + 1, end - start - 1);
-                    const char *val = getenv(var_name.c_str());
-                    if (val) result += val;
+                    // ADD: Handle ${RANDOM} khusus
+                    if (var_name == "RANDOM") {
+                        random_seed = xrand(random_seed, 0, 32767);
+                        result += std::to_string(random_seed);
+                    } else {
+                        const char *val = getenv(var_name.c_str());
+                        if (val) result += val;
+                    }
                     i = end;
                 }
                 else
@@ -531,8 +564,15 @@ std::string expand_argument(const std::string &token)
                 while (end < token.length() && (isalnum(token[end]) || token[end] == '_'))
                     end++;
                 std::string var_name = token.substr(start, end - start);
-                const char *val = getenv(var_name.c_str());
-                if (val) result += val;
+                
+                // ADD: Handle $RANDOM khusus
+                if (var_name == "RANDOM") {
+                    random_seed = xrand(random_seed, 0, 32767);
+                    result += std::to_string(random_seed);
+                } else {
+                    const char *val = getenv(var_name.c_str());
+                    if (val) result += val;
+                }
                 i = end - 1;
             }
             else if (isdigit(token[start]))
@@ -582,6 +622,8 @@ std::string expand_argument(const std::string &token)
     }
     return result;
 }
+
+// ... (kode setelahnya tetap sama) ...
 
 void apply_expansions_and_wildcards(std::vector<std::string> &tokens)
 {
