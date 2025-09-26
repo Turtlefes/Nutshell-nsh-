@@ -32,6 +32,7 @@ TokenType get_token_type(const std::string &s)
     if (s == "(") return TokenType::LPAREN;
     if (s == ")") return TokenType::RPAREN;
     if (s == "\\") return TokenType::BACKSLASH;
+    if (s == "=") return TokenType::ASSIGNMENT_WORD;
     return TokenType::WORD;
 }
 
@@ -489,6 +490,11 @@ void Parser::expand_aliases(std::vector<Token> &tokens)
     }
 }
 
+
+
+
+
+
 std::vector<ParsedCommand> Parser::parse(const std::string &input)
 {
     std::vector<ParsedCommand> command_list;
@@ -505,6 +511,8 @@ std::vector<ParsedCommand> Parser::parse(const std::string &input)
     SimpleCommand current_simple_cmd;
     bool expect_redirect_file = false;
     TokenType last_redirect_type = TokenType::WORD;
+    
+    bool command_word_found = false;
 
     for (size_t i = 0; i < tokens.size(); ++i)
     {
@@ -554,13 +562,21 @@ std::vector<ParsedCommand> Parser::parse(const std::string &input)
         {
             case TokenType::ASSIGNMENT_WORD:
             {
-                auto [var_name, value] = parse_env_assignment(token.text);
-                current_simple_cmd.env_vars[var_name] = value;
-                current_simple_cmd.exported_vars.insert(var_name);
+                if (!command_word_found)
+                {
+                    auto [var_name, value] = parse_env_assignment(token.text);
+                    current_simple_cmd.env_vars[var_name] = value;
+                    current_simple_cmd.exported_vars.insert(var_name);
+                }
+                else
+                {
+                    current_simple_cmd.tokens.push_back(token.text);
+                }
                 break;
             }
             case TokenType::WORD:
             case TokenType::STRING:
+                command_word_found = true;
                 current_simple_cmd.tokens.push_back(token.text);
                 break;
                 
@@ -573,6 +589,7 @@ std::vector<ParsedCommand> Parser::parse(const std::string &input)
                 apply_expansions_and_wildcards(current_simple_cmd.tokens);
                 command_list.back().pipeline.push_back(current_simple_cmd);
                 current_simple_cmd = {};
+                command_word_found = false;
                 break;
 
             case TokenType::AND_IF:
@@ -595,6 +612,7 @@ std::vector<ParsedCommand> Parser::parse(const std::string &input)
                     command_list.back().next_operator = ParsedCommand::Operator::SEQUENCE;
 
                 command_list.emplace_back();
+                command_word_found = false;
                 break;
 
             case TokenType::LESS:
@@ -634,6 +652,104 @@ std::vector<ParsedCommand> Parser::parse(const std::string &input)
 
     return command_list;
 }
+
+/*
+std::vector<ParsedCommand> Parser::parse(const std::string &input)
+{
+    std::vector<ParsedCommand> command_list;
+    if (input.empty() || input.find_first_not_of(" \t\n") == std::string::npos)
+        return command_list;
+      
+    std::vector<Token> tokens = tokenize(input);
+    if (tokens.empty())
+        return command_list;
+    
+    expand_aliases(tokens);
+
+    command_list.emplace_back();
+    SimpleCommand current_simple_cmd;
+    bool expect_redirect_file = false;
+    TokenType last_redirect_type = TokenType::WORD;
+    
+    // ===== PERUBAHAN 1: Tambahkan flag ini =====
+    bool command_word_found = false;
+
+    for (size_t i = 0; i < tokens.size(); ++i)
+    {
+        const Token &token = tokens[i];
+
+        if (expect_redirect_file)
+        {
+            // ... (logika redirection tidak berubah)
+        }
+
+        switch (token.type)
+        {
+            // ===== PERUBAHAN 2: Modifikasi total case ini =====
+            case TokenType::ASSIGNMENT_WORD:
+            {
+                // Jika belum ada command utama, ini adalah env var prefix
+                if (!command_word_found) 
+                {
+                    auto [var_name, value] = parse_env_assignment(token.text);
+                    current_simple_cmd.env_vars[var_name] = value;
+                    current_simple_cmd.exported_vars.insert(var_name);
+                } 
+                // Jika sudah ada command, ini adalah argumen (misal untuk alias/export)
+                else 
+                {
+                    current_simple_cmd.tokens.push_back(token.text);
+                }
+                break;
+            }
+            case TokenType::WORD:
+            case TokenType::STRING:
+                // Begitu kita menemukan WORD/STRING, tandai bahwa command utama telah ditemukan
+                command_word_found = true; 
+                current_simple_cmd.tokens.push_back(token.text);
+                break;
+                
+            case TokenType::PIPE:
+                // ... (sisa logika pipe)
+                apply_expansions_and_wildcards(current_simple_cmd.tokens);
+                command_list.back().pipeline.push_back(current_simple_cmd);
+                current_simple_cmd = {};
+                command_word_found = false; // <-- Reset flag untuk command berikutnya
+                break;
+
+            case TokenType::AND_IF:
+            case TokenType::OR_IF:
+            case TokenType::SEMICOLON:
+                // ... (sisa logika operator)
+                apply_expansions_and_wildcards(current_simple_cmd.tokens);
+                command_list.back().pipeline.push_back(current_simple_cmd);
+                current_simple_cmd = {};
+
+                // ... (sisa logika operator)
+
+                command_list.emplace_back();
+                command_word_found = false; // <-- Reset flag untuk command berikutnya
+                break;
+            
+            // ===== PERUBAHAN 3: Pastikan semua operator yang memisahkan command juga mereset flag =====
+            case TokenType::LESS:
+            case TokenType::GREAT:
+            // ... dll ...
+                // Redirection tidak mengubah status command_word_found,
+                // karena `VAR=val > file echo hi` masih valid.
+                expect_redirect_file = true;
+                last_redirect_type = token.type;
+                break;
+
+            // ... sisa switch case ...
+        }
+    }
+    // ... sisa fungsi ...
+}
+*/
+
+
+
 
 bool Parser::needs_EOF_IN(const std::string& line) const {
     if (line.empty()) return false;

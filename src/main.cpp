@@ -77,7 +77,7 @@ void handle_command_line_args(int argc, char* argv[]) {
         }
         else if (args[i] == "--help" || args[i] == "-h") {
             std::cout << "Turtlefes Nutshell, version " << shell_version_long << std::endl;
-            std::cout << "Usage: nsh [OPTIONS] [FILE]\n\n"
+            std::cout << "Usage: " << argv[0] << " [OPTIONS] [FILE]\n\n"
                       << "Options:\n"
                       << "  -c, --command COMMAND  Execute COMMAND and exit\n"
                       << "  -h, --help             Show this help message\n"
@@ -225,6 +225,9 @@ void run_interactive_shell() {
         
         safe_set_raw_mode();
         //tcflush(STDIN_FILENO, TCIFLUSH);
+        
+        //std::cout << "\r\033[K";
+        //std::cout.flush();
 
         std::string main_prompt = get_prompt_string();
         
@@ -239,6 +242,11 @@ void run_interactive_shell() {
         } catch (const std::exception &e) {
             std::cerr << "nsh: " << e.what() << std::endl;
             last_exit_code = 1;
+        }
+        
+        if (last_exit_code >= 128) {
+          std::cout << "\n";
+          std::cout.flush();
         }
         
         // Simpan history secara periodik

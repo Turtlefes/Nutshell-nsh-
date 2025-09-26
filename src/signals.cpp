@@ -28,11 +28,6 @@ int wait_for_job(pid_t pgid) {
 }
 
 void clear_readline_input() {
-    // Pastikan kursor berada di awal baris baru
-    if (rl_end > 0) {
-        std::cout << std::endl;
-    }
-    
     rl_replace_line("", 0);
     rl_crlf();
     rl_on_new_line();

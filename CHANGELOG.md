@@ -7,7 +7,7 @@
 - Cannot execute relative path [FIXED]
 - Pipeline cannot execute builtin command [FIXED]
 - Assignment variable like ```VAR=/value``` is considered as a path execution
-- Alias Assignment
+- Alias Assignment [FIXED, caused by tokenizer]
 - Bug when cd when having a CDPATH [FIXED]
 
 ### To-be-changed/Coming
@@ -41,3 +41,7 @@
 
 ### [+] Added
 - Environment child process
+
+### [*] Fixed
+- Alias Assignment [FIXED, caused by tokenizer]
+- Signal output on child process looking weird
