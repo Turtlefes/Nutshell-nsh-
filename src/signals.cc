@@ -11,21 +11,41 @@
 
 #include <termios.h>
 
+/**
+ * @brief Menunggu sebuah job (process group) di foreground hingga statusnya berubah.
+ * * Fungsi ini akan memblokir eksekusi hingga sebuah proses dalam process group `pgid`
+ * berhenti (stopped), selesai (terminated), atau diinterupsi oleh sinyal.
+ * Fungsi ini juga memastikan kontrol terminal dikembalikan ke shell setelahnya.
+ * * @param pgid Process Group ID dari job yang akan ditunggu.
+ * @return Status integer yang dikembalikan oleh `waitpid`.
+ */
 int wait_for_job(pid_t pgid) {
     int status = 0;
-    pid_t pid;
+    pid_t result;
 
     do {
-        pid = waitpid(-pgid, &status, WUNTRACED);
-        if (pid == -1 && errno != EINTR) {
-            perror("waitpid");
-            break;
+        // Tunggu proses dalam process group -pgid
+        // dengan opsi WUNTRACED untuk mendeteksi proses berhenti (Ctrl+Z)
+        result = waitpid(-pgid, &status, WUNTRACED);
+        
+        // Cek jika proses berhenti (WIFSTOPPED) atau selesai (WIFEXITED/WIFSIGNALED)
+        if (result > 0) {
+            if (WIFSTOPPED(status) || WIFSIGNALED(status) || WIFEXITED(status)) {
+                return status; // Langsung kembalikan status
+            }
         }
-    } while (pid > 0 && !WIFEXITED(status) && !WIFSIGNALED(status) && !WIFSTOPPED(status));
+    } while (result == -1 && errno == EINTR);
 
-    tcsetpgrp(STDIN_FILENO, shell_pgid);
+    // Jika waitpid gagal karena alasan lain
+    if (result == -1) {
+        perror("waitpid");
+        return -1;
+    }
+
     return status;
 }
+
+
 
 void clear_readline_input() {
     rl_replace_line("", 0);
@@ -40,7 +60,6 @@ void clear_readline_input() {
 
 void sigtstp_handler(int signum) {
     (void)signum;
-
     if (foreground_pgid == 0 || foreground_pgid == shell_pgid) {
         clear_readline_input();
         return;
@@ -64,13 +83,19 @@ void sigtstp_handler(int signum) {
 
 void sigint_handler(int signum) {
     (void)signum;
-    if (foreground_pgid != 0) {
-        if (kill(-foreground_pgid, SIGINT) < 0) {
-            perror("kill (SIGINT)");
-        }
-    } else {
-        EOF_IN_interrupt = 1; // flag Eof interrupt untuk continuation
+    
+    // Set global interrupt flag
+    EOF_IN_interrupt = 1;
+    
+    if (foreground_pgid == 0 || foreground_pgid == shell_pgid) {
+        // Dalam shell utama atau tidak ada foreground process
         clear_readline_input();
+        return;
+    }
+    
+    // Ada foreground process - kirim SIGINT ke process group tersebut
+    if (kill(-foreground_pgid, SIGINT) < 0) {
+        perror("kill (SIGINT)");
     }
 }
 
@@ -134,14 +159,14 @@ void sigusr2_handler(int signum) {
     (void)signum;
     std::cout << "\nReceived SIGUSR2" << std::endl;
 }
-
+/*
 void sigwinch_handler(int signum) {
     (void)signum;
     if (isatty(STDIN_FILENO)) {
         rl_resize_terminal();
     }
 }
-
+*/
 void sigpipe_handler(int signum) {
     (void)signum;
 }
@@ -178,6 +203,97 @@ void sigchld_handler(int signum) {
     }
 }
 
+/**
+ * @brief Menonaktifkan sinyal dengan mengaturnya agar diabaikan (SIG_IGN).
+ *
+ * Fungsi ini menggunakan sigaction untuk mengatur handler sinyal
+ * yang ditentukan agar diabaikan oleh kernel. Ini mencegah
+ * sinyal tersebut mengganggu atau menghentikan eksekusi program.
+ *
+ * @param signal Nama sinyal dalam bentuk string (misalnya, "SIGINT", "SIGTSTP").
+ * @return 0 jika berhasil, -1 jika gagal.
+ */
+int disable_signal(std::string signal) {
+    struct sigaction sa;
+    sigemptyset(&sa.sa_mask);
+    sa.sa_flags = 0;
+    sa.sa_handler = SIG_IGN; // Mengabaikan sinyal
+
+    if (signal == "SIGCHLD") {
+        return sigaction(SIGCHLD, &sa, NULL);
+    } else if (signal == "SIGTSTP") {
+        return sigaction(SIGTSTP, &sa, NULL);
+    } else if (signal == "SIGINT") {
+        return sigaction(SIGINT, &sa, NULL);
+    } else if (signal == "SIGQUIT") {
+        return sigaction(SIGQUIT, &sa, NULL);
+    } else if (signal == "SIGTERM") {
+        return sigaction(SIGTERM, &sa, NULL);
+    } else if (signal == "SIGHUP") {
+        return sigaction(SIGHUP, &sa, NULL);
+    } else if (signal == "SIGCONT") {
+        return sigaction(SIGCONT, &sa, NULL);
+    } else if (signal == "SIGPIPE") {
+        return sigaction(SIGPIPE, &sa, NULL);
+    } else if (signal == "SIGTTIN") {
+        return sigaction(SIGTTIN, &sa, NULL);
+    } else if (signal == "SIGTTOU") {
+        return sigaction(SIGTTOU, &sa, NULL);
+    } else if (signal == "SIGUSR1") {
+        return sigaction(SIGUSR1, &sa, NULL);
+    } else if (signal == "SIGUSR2") {
+        return sigaction(SIGUSR2, &sa, NULL);
+    }
+
+    return -1; // Sinyal tidak dikenali
+}
+/**
+ * @brief Mengembalikan handler sinyal ke perilaku default.
+ *
+ * Fungsi ini mengembalikan sinyal ke perilaku default (SIG_DFL)
+ * yang ditetapkan oleh sistem operasi. Ini sangat penting untuk
+ * proses anak yang akan mengeksekusi program baru.
+ *
+ * @param signal Nama sinyal dalam bentuk string (misalnya, "SIGINT", "SIGCHLD").
+ * @return 0 jika berhasil, -1 jika gagal.
+ */
+int restore_signal(std::string signal) {
+    struct sigaction sa;
+    sigemptyset(&sa.sa_mask);
+    sa.sa_flags = 0;
+    sa.sa_handler = SIG_DFL; // Mengembalikan ke perilaku default
+
+    if (signal == "SIGCHLD") {
+        return sigaction(SIGCHLD, &sa, NULL);
+    } else if (signal == "SIGTSTP") {
+        return sigaction(SIGTSTP, &sa, NULL);
+    } else if (signal == "SIGINT") {
+        return sigaction(SIGINT, &sa, NULL);
+    } else if (signal == "SIGQUIT") {
+        return sigaction(SIGQUIT, &sa, NULL);
+    } else if (signal == "SIGTERM") {
+        return sigaction(SIGTERM, &sa, NULL);
+    } else if (signal == "SIGHUP") {
+        return sigaction(SIGHUP, &sa, NULL);
+    } else if (signal == "SIGCONT") {
+        return sigaction(SIGCONT, &sa, NULL);
+    } else if (signal == "SIGPIPE") {
+        return sigaction(SIGPIPE, &sa, NULL);
+    } else if (signal == "SIGTTIN") {
+        return sigaction(SIGTTIN, &sa, NULL);
+    } else if (signal == "SIGTTOU") {
+        return sigaction(SIGTTOU, &sa, NULL);
+    } else if (signal == "SIGUSR1") {
+        return sigaction(SIGUSR1, &sa, NULL);
+    } else if (signal == "SIGUSR2") {
+        return sigaction(SIGUSR2, &sa, NULL);
+    }
+
+    return -1; // Sinyal tidak dikenali
+}
+
+
+
 void setup_signals() {
     struct sigaction sa;
     sigemptyset(&sa.sa_mask);
@@ -203,10 +319,10 @@ void setup_signals() {
 
     sa.sa_handler = sigcont_handler;
     sigaction(SIGCONT, &sa, NULL);
-
+    /*
     sa.sa_handler = sigwinch_handler;
     sigaction(SIGWINCH, &sa, NULL);
-
+    */
     sa.sa_handler = sigusr1_handler;
     sigaction(SIGUSR1, &sa, NULL);
 

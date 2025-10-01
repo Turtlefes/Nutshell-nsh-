@@ -23,7 +23,7 @@
 #include "init.h"
 #include "parser.h"
 #include "platform.h"
-#include "prompt.h"
+#include "input.h"
 #include "signals.h"
 #include "terminal.h"
 #include "utils.h"

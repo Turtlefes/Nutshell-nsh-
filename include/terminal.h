@@ -14,6 +14,8 @@ void reset_terminal();
 
 
 void give_terminal_to(pid_t pgid);
+void give_terminal_to_fd(int fd, pid_t pgid);
+void take_terminal_to(pid_t pgid);
 
 void clear_pending_input();
 

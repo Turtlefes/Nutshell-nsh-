@@ -42,13 +42,14 @@ class Parser
 public:
     std::vector<ParsedCommand> parse(const std::string &input);
     // Method untuk mendapatkan input multiline
-    std::string get_multiline_input(const std::string& initial_prompt);
     // Helper function untuk mendeteksi apakah baris memerlukan EOF_IN
+    bool expand_history(std::string& input);
     bool needs_EOF_IN(const std::string& line) const;
     std::vector<Token> tokenize(const std::string &input) const;
 
 private:
-    std::string expand_history(const std::string &input) const;
+    std::string get_history_by_number(int number);
+    std::string get_history_by_pattern(const std::string& pattern);
     void expand_aliases(std::vector<Token> &tokens);
     std::string clean_EOF_IN_line(std::string line) const;
 };

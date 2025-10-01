@@ -63,12 +63,12 @@ void initialize_environment()
     LOGICAL_PWD = (pwd_env && fs::exists(pwd_env)) ? fs::path(pwd_env).lexically_normal() : fs::current_path();
     setenv("PWD", LOGICAL_PWD.c_str(), 1);
 
-    ns_CONFIG_DIR = HOME_DIR / ".nsh";
+    ns_CONFIG_DIR = HOME_DIR / ".nshprofile";
     ns_CONFIG_FILE = ns_CONFIG_DIR / "config.rc";
     ns_HISTORY_FILE = ns_CONFIG_DIR / "history";
     ns_RC_FILE = ns_CONFIG_DIR / "nsrc";
-    ns_ALIAS_FILE = ns_CONFIG_DIR / "alias";
-    ns_BOOKMARK_FILE = ns_CONFIG_DIR / "bookmarks";
+    ns_ALIAS_FILE = ns_CONFIG_DIR / "nshalias";
+    ns_BOOKMARK_FILE = ns_CONFIG_DIR / "nshmarkpaths";
     ETCDIR = ns_CONFIG_DIR;
     
     try

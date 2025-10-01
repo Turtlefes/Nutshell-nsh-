@@ -6,6 +6,9 @@ void suspend_shell();
 void suspend_current_job();
 int wait_for_job(pid_t pgid);
 
+int disable_signal(std::string signal);
+int restore_signal(std::string signal);
+
 // Deklarasi handler agar bisa diakses jika perlu (misal untuk setup)
 void sigchld_handler(int signum);
 void sigtstp_handler(int signum);

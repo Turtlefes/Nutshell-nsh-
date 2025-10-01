@@ -16,6 +16,8 @@
 #include <cctype>
 #include <algorithm> // Untuk std::find
 
+#include <cstdlib>
+#include <sstream>
 // Fungsi untuk mengubah string menjadi TokenType
 TokenType get_token_type(const std::string &s)
 {
@@ -567,6 +569,8 @@ std::vector<ParsedCommand> Parser::parse(const std::string &input)
                     auto [var_name, value] = parse_env_assignment(token.text);
                     current_simple_cmd.env_vars[var_name] = value;
                     current_simple_cmd.exported_vars.insert(var_name);
+                    
+                    environ_map[var_name] = {value, false, false};
                 }
                 else
                 {
@@ -653,103 +657,222 @@ std::vector<ParsedCommand> Parser::parse(const std::string &input)
     return command_list;
 }
 
-/*
-std::vector<ParsedCommand> Parser::parse(const std::string &input)
-{
-    std::vector<ParsedCommand> command_list;
-    if (input.empty() || input.find_first_not_of(" \t\n") == std::string::npos)
-        return command_list;
-      
-    std::vector<Token> tokens = tokenize(input);
-    if (tokens.empty())
-        return command_list;
+// Fungsi untuk mengekstrak nomor history dari string
+int extract_history_number(const std::string& str) {
+    if (str.empty() || str[0] != '!') return -1;
     
-    expand_aliases(tokens);
-
-    command_list.emplace_back();
-    SimpleCommand current_simple_cmd;
-    bool expect_redirect_file = false;
-    TokenType last_redirect_type = TokenType::WORD;
-    
-    // ===== PERUBAHAN 1: Tambahkan flag ini =====
-    bool command_word_found = false;
-
-    for (size_t i = 0; i < tokens.size(); ++i)
-    {
-        const Token &token = tokens[i];
-
-        if (expect_redirect_file)
-        {
-            // ... (logika redirection tidak berubah)
+    try {
+        if (str.length() > 1) {
+            return std::stoi(str.substr(1));
         }
+    } catch (const std::exception& e) {
+        return -1;
+    }
+    return -1;
+}
 
-        switch (token.type)
-        {
-            // ===== PERUBAHAN 2: Modifikasi total case ini =====
-            case TokenType::ASSIGNMENT_WORD:
-            {
-                // Jika belum ada command utama, ini adalah env var prefix
-                if (!command_word_found) 
-                {
-                    auto [var_name, value] = parse_env_assignment(token.text);
-                    current_simple_cmd.env_vars[var_name] = value;
-                    current_simple_cmd.exported_vars.insert(var_name);
-                } 
-                // Jika sudah ada command, ini adalah argumen (misal untuk alias/export)
-                else 
-                {
-                    current_simple_cmd.tokens.push_back(token.text);
-                }
-                break;
-            }
-            case TokenType::WORD:
-            case TokenType::STRING:
-                // Begitu kita menemukan WORD/STRING, tandai bahwa command utama telah ditemukan
-                command_word_found = true; 
-                current_simple_cmd.tokens.push_back(token.text);
-                break;
-                
-            case TokenType::PIPE:
-                // ... (sisa logika pipe)
-                apply_expansions_and_wildcards(current_simple_cmd.tokens);
-                command_list.back().pipeline.push_back(current_simple_cmd);
-                current_simple_cmd = {};
-                command_word_found = false; // <-- Reset flag untuk command berikutnya
-                break;
+// Fungsi untuk mendapatkan history berdasarkan nomor - PERBAIKAN
+std::string Parser::get_history_by_number(int number) {
+    HIST_ENTRY** hist_list = history_list();
+    if (!hist_list) {
+        std::cerr << "nsh: history: history list not available" << std::endl;
+        return "";
+    }
+    
+    int hist_length = history_length;
+    if (hist_length == 0) {
+        std::cerr << "nsh: history: no history entries" << std::endl;
+        return "";
+    }
+    
+    // Handle negative indexing
+    if (number < 0) {
+        number = hist_length + number;
+    }
+    
+    // Validasi range
+    if (number < 0 || number >= hist_length) {
+        std::cerr << "nsh: history: history position " << number << " not found" << std::endl;
+        return "";
+    }
+    
+    return hist_list[number]->line;
+}
 
-            case TokenType::AND_IF:
-            case TokenType::OR_IF:
-            case TokenType::SEMICOLON:
-                // ... (sisa logika operator)
-                apply_expansions_and_wildcards(current_simple_cmd.tokens);
-                command_list.back().pipeline.push_back(current_simple_cmd);
-                current_simple_cmd = {};
-
-                // ... (sisa logika operator)
-
-                command_list.emplace_back();
-                command_word_found = false; // <-- Reset flag untuk command berikutnya
-                break;
-            
-            // ===== PERUBAHAN 3: Pastikan semua operator yang memisahkan command juga mereset flag =====
-            case TokenType::LESS:
-            case TokenType::GREAT:
-            // ... dll ...
-                // Redirection tidak mengubah status command_word_found,
-                // karena `VAR=val > file echo hi` masih valid.
-                expect_redirect_file = true;
-                last_redirect_type = token.type;
-                break;
-
-            // ... sisa switch case ...
+// Fungsi untuk mendapatkan history berdasarkan string pattern - PERBAIKAN
+std::string Parser::get_history_by_pattern(const std::string& pattern) {
+    HIST_ENTRY** hist_list = history_list();
+    if (!hist_list) {
+        std::cerr << "nsh: history: history list not available" << std::endl;
+        return "";
+    }
+    
+    int hist_length = history_length;
+    if (hist_length == 0) {
+        std::cerr << "nsh: history: no history entries" << std::endl;
+        return "";
+    }
+    
+    // Search from most recent to oldest
+    for (int i = hist_length - 1; i >= 0; i--) {
+        std::string entry = hist_list[i]->line;
+        
+        // For !pattern (starts with pattern)
+        if (!pattern.empty() && pattern[0] != '?' && 
+            entry.length() >= pattern.length() &&
+            entry.substr(0, pattern.length()) == pattern) {
+            return entry;
+        }
+        
+        // For !?pattern? (contains pattern)
+        if (!pattern.empty() && pattern[0] == '?' && 
+            entry.find(pattern.substr(1)) != std::string::npos) {
+            return entry;
         }
     }
-    // ... sisa fungsi ...
+    
+    std::cerr << "nsh: history: no matching history entry for `" << pattern << "'" << std::endl;
+    return "";
 }
-*/
 
-
-
+// Fungsi utama untuk history expansion - PERBAIKAN
+bool Parser::expand_history(std::string& input) {
+    if (input.empty() || input.find('!') == std::string::npos) {
+        return false;
+    }
+    
+    std::string result;
+    size_t pos = 0;
+    bool expanded = false;
+    bool in_single_quote = false;
+    bool in_double_quote = false;
+    
+    while (pos < input.length()) {
+        size_t bang_pos = input.find('!', pos);
+        
+        if (bang_pos == std::string::npos) {
+            // No more ! found, append the rest
+            result += input.substr(pos);
+            break;
+        }
+        
+        // Append text before !
+        result += input.substr(pos, bang_pos - pos);
+        
+        // Check if we're in quotes
+        for (size_t i = pos; i < bang_pos; i++) {
+            if (input[i] == '\'' && (i == 0 || input[i-1] != '\\')) {
+                in_single_quote = !in_single_quote;
+            } else if (input[i] == '"' && (i == 0 || input[i-1] != '\\')) {
+                in_double_quote = !in_double_quote;
+            }
+        }
+        
+        // Skip history expansion inside single quotes
+        if (in_single_quote) {
+            result += '!';
+            pos = bang_pos + 1;
+            continue;
+        }
+        
+        // Handle escaped \!
+        if (bang_pos > 0 && input[bang_pos - 1] == '\\') {
+            // Remove the backslash and keep the !
+            result.pop_back(); // Remove the backslash
+            result += '!';
+            pos = bang_pos + 1;
+            continue;
+        }
+        
+        // Check what follows the !
+        if (bang_pos + 1 >= input.length()) {
+            // ! at the end of input
+            result += '!';
+            break;
+        }
+        
+        char next_char = input[bang_pos + 1];
+        std::string replacement;
+        bool expansion_found = false;
+        
+        if (next_char == '!') {
+            // !! - previous command
+            replacement = get_history_by_number(-1);
+            pos = bang_pos + 2;
+            expansion_found = true;
+        } else if (isdigit(next_char) || (next_char == '-' && bang_pos + 2 < input.length() && isdigit(input[bang_pos + 2]))) {
+            // !n or !-n - history number n
+            size_t end_pos = bang_pos + 2;
+            while (end_pos < input.length() && (isdigit(input[end_pos]) || input[end_pos] == '-')) {
+                end_pos++;
+            }
+            
+            std::string num_str = input.substr(bang_pos + 1, end_pos - bang_pos - 1);
+            int hist_num = extract_history_number("!" + num_str);
+            replacement = get_history_by_number(hist_num);
+            pos = end_pos;
+            expansion_found = true;
+        } else if (isalpha(next_char) || next_char == '_') {
+            // !string - most recent command starting with string
+            size_t end_pos = bang_pos + 2;
+            while (end_pos < input.length() && (isalnum(input[end_pos]) || input[end_pos] == '_' || input[end_pos] == '-')) {
+                end_pos++;
+            }
+            
+            std::string pattern = input.substr(bang_pos + 1, end_pos - bang_pos - 1);
+            replacement = get_history_by_pattern(pattern);
+            pos = end_pos;
+            expansion_found = true;
+        } else if (next_char == '?') {
+            // !?string? - most recent command containing string
+            size_t end_pos = bang_pos + 2;
+            size_t question_end = input.find('?', end_pos);
+            if (question_end != std::string::npos) {
+                std::string pattern = input.substr(end_pos, question_end - end_pos);
+                replacement = get_history_by_pattern(pattern);
+                pos = question_end + 1;
+                expansion_found = true;
+            } else {
+                // No closing ?, treat as regular !
+                result += '!';
+                pos = bang_pos + 1;
+                continue;
+            }
+        }
+        
+        if (expansion_found && !replacement.empty()) {
+            result += replacement;
+            expanded = true;
+            
+            // Update quote state for the replacement text
+            for (char c : replacement) {
+                if (c == '\'' && (result.size() == 1 || result[result.size()-2] != '\\')) {
+                    in_single_quote = !in_single_quote;
+                } else if (c == '"' && (result.size() == 1 || result[result.size()-2] != '\\')) {
+                    in_double_quote = !in_double_quote;
+                }
+            }
+        } else {
+            // Expansion failed or not found, keep the original
+            if (expansion_found && replacement.empty()) {
+                // Expansion was attempted but failed - keep the ! pattern
+                size_t end_pos = pos;
+                result += input.substr(bang_pos, end_pos - bang_pos);
+            } else {
+                // Not a valid expansion pattern, keep the !
+                result += '!';
+                pos = bang_pos + 1;
+            }
+        }
+    }
+    
+    if (expanded) {
+        input = result;
+        return true;
+    }
+    
+    return false;
+}
 
 bool Parser::needs_EOF_IN(const std::string& line) const {
     if (line.empty()) return false;
@@ -791,189 +914,4 @@ bool Parser::needs_EOF_IN(const std::string& line) const {
         default:
             return false;
     }
-}
-
-// Helper function untuk wrap prompt dengan escape sequences
-std::string wrap_prompt_for_readline(const std::string& prompt) {
-    // Cari escape sequences dan wrap dengan \001 dan \002
-    std::string wrapped;
-    bool in_escape = false;
-    
-    for (size_t i = 0; i < prompt.length(); i++) {
-        if (prompt[i] == '\033' && prompt.substr(i, 2) == "\033[") {
-            wrapped += "\001"; // Start non-printable
-            in_escape = true;
-        }
-        
-        wrapped += prompt[i];
-        
-        if (in_escape && prompt[i] == 'm') {
-            wrapped += "\002"; // End non-printable
-            in_escape = false;
-        }
-    }
-    
-    return wrapped;
-}
-
-
-std::string Parser::get_multiline_input(const std::string& initial_prompt) {
-    std::string full_input;
-    std::string current_prompt = initial_prompt;
-    bool EOF_IN = false;
-    std::vector<std::string> EOF_IN_lines;
-    size_t EOF_IN_position = 0;
-    bool EOF_IN_by_operator = false;
-    bool EOF_IN_by_backslash = false;
-
-    do {
-        // Handle readline setup
-        safe_set_cooked_mode();
-        rl_save_prompt();
-        
-        std::string wrapped_prompt = wrap_prompt_for_readline(current_prompt);
-        char* line_read = readline(wrapped_prompt.c_str());
-        safe_set_raw_mode();
-
-        // Handle Ctrl-D (EOF)
-        if (line_read == nullptr) {
-            if (full_input.empty()) {
-                std::cout << "exit" << std::endl;
-                save_history();
-                exit_shell(last_exit_code);
-            } else {
-                break;
-            }
-        }
-
-        std::string line(line_read);
-        free(line_read);
-
-        if (!line.empty() || EOF_IN) {
-            if (EOF_IN) {
-                // Ini adalah baris EOF_IN
-                if (EOF_IN_by_operator) {
-                    // Untuk EOF_IN oleh operator, tambahkan dengan spasi
-                    if (!full_input.empty() && full_input.back() != ' ') {
-                        full_input += " ";
-                    }
-                    full_input += line;
-                } else if (EOF_IN_by_backslash) {
-                    // Untuk EOF_IN oleh backslash, hapus backslash dan append tanpa spasi
-                    if (EOF_IN_position < full_input.length()) {
-                        // Hapus backslash terakhir
-                        full_input = full_input.substr(0, EOF_IN_position);
-                        // Append teks EOF_IN tanpa spasi tambahan
-                        full_input += line;
-                    }
-                }
-            } else {
-                // Baris pertama
-                full_input = line;
-            }
-            
-            EOF_IN_lines.push_back(line);
-            
-            // Check for EOF_IN menggunakan fungsi needs_EOF_IN
-            EOF_IN = needs_EOF_IN(line);
-            EOF_IN_position = 0;
-            EOF_IN_by_operator = false;
-            EOF_IN_by_backslash = false;
-            
-            if (EOF_IN) {
-                // Deteksi jenis EOF_IN
-                std::vector<Token> tokens = tokenize(line);
-                if (!tokens.empty()) {
-                    const Token& last_token = tokens.back();
-                    EOF_IN_by_operator = (last_token.type == TokenType::PIPE ||
-                                              last_token.type == TokenType::AND_IF ||
-                                              last_token.type == TokenType::OR_IF ||
-                                              last_token.type == TokenType::LESS ||
-                                              last_token.type == TokenType::GREAT ||
-                                              last_token.type == TokenType::DGREAT ||
-                                              last_token.type == TokenType::LESSLESS ||
-                                              last_token.type == TokenType::LESSLESSLESS);
-                }
-                
-                // Juga cek untuk backslash continuation
-                std::string trimmed_line = rtrim(line);
-                if (!trimmed_line.empty() && trimmed_line.back() == '\\') {
-                    // Count the number of consecutive backslashes at the end
-                    size_t backslash_count = 0;
-                    for (auto it = trimmed_line.rbegin(); it != trimmed_line.rend() && *it == '\\'; ++it) {
-                        backslash_count++;
-                    }
-                    
-                    // If odd number of backslashes, then it's a true EOF_IN by backslash
-                    if (backslash_count % 2 == 1) {
-                        EOF_IN_by_backslash = true;
-                        EOF_IN_by_operator = false; // Prioritize backslash over operator
-                    }
-                }
-                
-                if (EOF_IN_by_operator) {
-                    // Untuk operator, simpan posisi di akhir (untuk append biasa)
-                    EOF_IN_position = full_input.length();
-                } else if (EOF_IN_by_backslash) {
-                    // Untuk backslash, simpan posisi backslash
-                    EOF_IN_position = full_input.length();
-                    
-                    // Temukan posisi awal backslash sequence
-                    size_t backslash_count = 0;
-                    for (auto it = line.rbegin(); it != line.rend() && *it == '\\'; ++it) {
-                        backslash_count++;
-                    }
-                    if (backslash_count > 0) {
-                        EOF_IN_position = full_input.length() - backslash_count;
-                    }
-                }
-                
-                current_prompt = "> ";
-            }
-        } else if (line.empty() && !EOF_IN) {
-            full_input = "";
-        }
-
-        rl_reset_line_state();
-        
-    } while (EOF_IN);
-    
-    // Handle history entry
-    if (!full_input.empty()) {
-        std::string history_entry = full_input;
-        
-        // Hapus semua baris individual dari history
-        for (const auto& line : EOF_IN_lines) {
-            if (!line.empty()) {
-                HIST_ENTRY** hist_list = history_list();
-                if (hist_list) {
-                    for (int i = 0; hist_list[i]; i++) {
-                        if (std::string(hist_list[i]->line) == line) {
-                            remove_history(i);
-                            break;
-                        }
-                    }
-                }
-            }
-        }
-        
-        // Clean up trailing backslashes from EOF_IN
-        std::string trimmed_full = rtrim(full_input);
-        if (!trimmed_full.empty() && trimmed_full.back() == '\\') {
-            // Find the start of the backslash sequence
-            size_t backslash_start = trimmed_full.length() - 1;
-            while (backslash_start > 0 && trimmed_full[backslash_start - 1] == '\\') {
-                backslash_start--;
-            }
-            // If there's an odd number of backslashes, remove the last one
-            if ((trimmed_full.length() - backslash_start) % 2 == 1) {
-                full_input = full_input.substr(0, full_input.length() - (full_input.length() - trimmed_full.length()) - 1);
-            }
-        }
-        
-        // Tambahkan history entry yang sudah dibersihkan
-        add_history(full_input.c_str());
-    }
-
-    return full_input;
 }

@@ -2,7 +2,7 @@
 //#
 // --- Shell Information ---
 const char *const shell_version   = "0.3.8";
-const char *const shell_version_long = "0.3.8.56";
+const char *const shell_version_long = "0.3.8.65";
 const char *const ext_shell_name  = "nsh";
 const char *const release_date    = "2025";
 const char *const COPYRIGHT       = "Copyright (c) 2025 Turtlefes. Bayu Setiawan";
@@ -37,6 +37,7 @@ size_t history_index = 0;
 int last_exit_code = 0;
 char **environ = nullptr;
 volatile sig_atomic_t EOF_IN_interrupt = 0;
+volatile int dont_execute_first = 0; // dont execute command if == 1;
 std::unordered_map<std::string, binary_hash_info> binary_hash_loc;
 
 // --- Environment management
@@ -87,10 +88,42 @@ const char* get_env_var(const std::string& name)
 std::unordered_map<std::string, var_info> environ_map;
 
 // --- Job Control ---
+// globals.cc (Tambahkan di dekat deklarasi variabel jobs)
+// ...
 std::map<int, Job> jobs;
-int next_job_id = 1;
+int next_job_id = 1; 
 volatile pid_t shell_pgid = 0;
 volatile pid_t foreground_pgid = 0;
+
+// Job tracking
+int last_launched_job_id = 0;
+int current_job_id = 0;
+int previous_job_id = 0;
+
+// Fungsi untuk mencari job yang paling baru
+int find_most_recent_job() {
+    if (jobs.empty()) return 0;
+    return jobs.rbegin()->first; // Return job ID terbesar (paling baru)
+}
+
+// Fungsi untuk mencari job kedua paling baru
+int find_second_most_recent_job() {
+    if (jobs.size() < 2) return 0;
+    auto it = jobs.rbegin();
+    ++it; // Lewati yang paling baru
+    return it->first;
+}
+
+// Fungsi untuk memperbarui job tracking ketika job selesai
+void update_job_tracking(int finished_job_id) {
+    if (finished_job_id == current_job_id) {
+        previous_job_id = current_job_id;
+        current_job_id = find_most_recent_job();
+    } else if (finished_job_id == previous_job_id) {
+        previous_job_id = find_second_most_recent_job();
+    }
+}
+
 
 // --- Extra counters ---
 int history_number = 0;

@@ -1,5 +1,3 @@
-// this file is a implementation of builtin cd command in the builtins.cpp
-
 void handle_builtin_cd(const std::vector<std::string> &t)
 {
     bool use_physical = false;
@@ -8,6 +6,7 @@ void handle_builtin_cd(const std::vector<std::string> &t)
     size_t first_arg_idx = 0;
     bool print_new_dir = false;
     bool from_cdpath = false;
+    bool from_bookmark = false;
 
     // Handle help option
     if (t.size() > 1 && (t[1] == "--help" || t[1] == "-help")) {
@@ -19,6 +18,9 @@ void handle_builtin_cd(const std::vector<std::string> &t)
                   << "      -e        if the -P option is supplied, and the current working directory\n"
                   << "                cannot be determined successfully, exit with a non-zero status\n"
                   << "      --        treat subsequent arguments as directories\n\n"
+                  << "    Additional Features:\n"
+                  << "      -BOOKMARK change to directory using bookmark name\n"
+                  << "      -         change to previous directory (OLDPWD)\n\n"
                   << "    The default is to follow symbolic links, as if `-L' were specified.\n\n"
                   << "    Exit Status:\n"
                   << "    Returns 0 if the directory is changed; non-zero otherwise.\n";
@@ -57,10 +59,44 @@ void handle_builtin_cd(const std::vector<std::string> &t)
             }
             else
             {
-                std::cerr << "nsh: cd: " << token << ": invalid option" << std::endl;
-                std::cerr << "cd: usage: cd [-L|-P|-e] [dir]" << std::endl;
-                last_exit_code = 2;
-                return;
+                // Check if this is a bookmark option (-bookmark_name)
+                std::string bookmark_name = token.substr(1); // Remove the leading '-'
+                
+                // Cari bookmark di file bookmark
+                std::ifstream bookmark_file(ns_BOOKMARK_FILE);
+                bool bookmark_found = false;
+                
+                if (bookmark_file.is_open())
+                {
+                    std::string line;
+                    while (std::getline(bookmark_file, line))
+                    {
+                        size_t space_pos = line.find(' ');
+                        if (space_pos != std::string::npos)
+                        {
+                            std::string current_bookmark_name = line.substr(0, space_pos);
+                            if (current_bookmark_name == bookmark_name)
+                            {
+                                path_arg_str = line.substr(space_pos + 1);
+                                first_arg_idx = i;
+                                from_bookmark = true;
+                                print_new_dir = true;
+                                bookmark_found = true;
+                                break;
+                            }
+                        }
+                    }
+                    bookmark_file.close();
+                }
+                
+                if (!bookmark_found)
+                {
+                    std::cerr << "nsh: cd: " << token << ": invalid option or bookmark not found" << std::endl;
+                    std::cerr << "cd: usage: cd [-L|-P|-e] [dir]" << std::endl;
+                    last_exit_code = 2;
+                    return;
+                }
+                break;
             }
             first_arg_idx = i + 1;
         }
@@ -71,21 +107,21 @@ void handle_builtin_cd(const std::vector<std::string> &t)
         }
     }
 
-    if (first_arg_idx > 0 && first_arg_idx < t.size())
+    if (first_arg_idx > 0 && first_arg_idx < t.size() && !from_bookmark)
     {
         path_arg_str = t[first_arg_idx];
     }
-    else if (t.size() == 1)
+    else if (t.size() == 1 && !from_bookmark)
     {
         path_arg_str.clear();
     }
 
     fs::path target_path;
-    if (path_arg_str.empty())
+    if (path_arg_str.empty() && !from_bookmark)
     {
         target_path = HOME_DIR;
     }
-    else if (path_arg_str == "-")
+    else if (path_arg_str == "-" && !from_bookmark)
     {
         if (OLD_PWD.empty())
         {
@@ -102,12 +138,13 @@ void handle_builtin_cd(const std::vector<std::string> &t)
     }
 
     // Handle special paths . and .. - they should never use CDPATH
-    if (path_arg_str == "." || path_arg_str == ".." || path_arg_str.find("../") == 0)
+    // Skip this check for bookmarks
+    if (!from_bookmark && (path_arg_str == "." || path_arg_str == ".." || path_arg_str.find("../") == 0))
     {
         // For . and .., always use the current working directory as base
         target_path = LOGICAL_PWD / path_arg_str;
     }
-    else if (!target_path.is_absolute() && path_arg_str != "-")
+    else if (!target_path.is_absolute() && path_arg_str != "-" && !from_bookmark)
     {
         // Search in CDPATH only for non-absolute, non-special paths
         const char *cdpath = getenv("CDPATH");
@@ -237,9 +274,10 @@ void handle_builtin_cd(const std::vector<std::string> &t)
         setenv("PWD", LOGICAL_PWD.c_str(), 1);
         setenv("OLDPWD", OLD_PWD.c_str(), 1);
         
-        // Print new directory only if using cd - or explicitly requested
-        // Don't print when directory was found via CDPATH
-        if (print_new_dir || from_cdpath) {
+        // Print new directory only if:
+        // - Using cd - or cd -bookmark
+        // - Directory was found via CDPATH
+        if (print_new_dir || from_cdpath || from_bookmark) {
             std::cout << LOGICAL_PWD.string() << std::endl;
         }
         

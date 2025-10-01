@@ -4,9 +4,9 @@
 #include <unistd.h>
 #include <cstdio>
 #include <cstdlib>
-#include <sys/types.h> // Add this for pid_t
-#include <errno.h>     // Add this for errno
-
+#include <sys/types.h>
+#include <errno.h>
+#include <csignal>
 #include <readline/history.h>
 
 bool is_terminal_initialized = false;
@@ -31,10 +31,12 @@ void setup_terminal()
     atexit(restore_terminal_mode);
     is_terminal_initialized = true;
 
+    // PASTIKAN SHELL MENJADI PROCESS GROUP FOREGROUND
     shell_pgid = getpid();
     if (setpgid(shell_pgid, shell_pgid) < 0)
     {
-        perror("setpgid");
+        perror("setpgid shell");
+        exit(1);
     }
     tcsetpgrp(STDIN_FILENO, shell_pgid);
 }
@@ -100,18 +102,69 @@ void safe_set_raw_mode()
     }
 }
 
-// [tambahkan fungsi untuk mengembalikan kontrol terminal dengan benar]
+// Versi default: pakai STDIN_FILENO
 void give_terminal_to(pid_t pgid) {
-    if (isatty(STDIN_FILENO)) {
-        while (tcsetpgrp(STDIN_FILENO, pgid) == -1 && errno == EINTR) {
+    if (!isatty(STDIN_FILENO)) {
+        return; // Bukan terminal
+    }
+
+    // Coba assign terminal sampai berhasil atau error bukan EINTR
+    while (tcsetpgrp(STDIN_FILENO, pgid) == -1) {
+        if (errno == EINTR) {
+            continue; // retry kalau ke-interrupt
+        } else if (errno == ENOTTY) {
+            return; // stdin bukan terminal
+        } else if (errno == EINVAL) {
+            return; // pgid bukan pgrp valid
+        } else {
+            perror("tcsetpgrp");
+            return;
+        }
+    }
+}
+
+// Versi bisa pilih file descriptor
+void give_terminal_to_fd(int fd, pid_t pgid) {
+    if (!isatty(fd)) {
+        return;
+    }
+
+    while (tcsetpgrp(fd, pgid) == -1) {
+        if (errno == EINTR) {
             continue;
+        } else if (errno == ENOTTY) {
+            return;
+        } else if (errno == EINVAL) {
+            return;
+        } else {
+            perror("tcsetpgrp");
+            return;
+        }
+    }
+}
+
+// FUNGSI UNTUK PROSES ANAK MENGAMBIL KONTROL TERMINAL
+void take_terminal_to(pid_t pgid)
+{
+    if (isatty(STDIN_FILENO))
+    {
+        // Set process group untuk child, lalu berikan kontrol terminal ke process group ini
+        if (setpgid(0, pgid) == -1 && errno != EACCES)
+        {
+            perror("setpgid child");
+        }
+        if (tcsetpgrp(STDIN_FILENO, pgid) == -1)
+        {
+            perror("tcsetpgrp child");
         }
     }
 }
 
 // [perbaiki reset_terminal]
-void reset_terminal() {
-    if (is_terminal_initialized && isatty(STDIN_FILENO)) {
+void reset_terminal()
+{
+    if (is_terminal_initialized && isatty(STDIN_FILENO))
+    {
         // Kembalikan ke mode original
         tcsetattr(STDIN_FILENO, TCSANOW, &original_termios);
         is_raw_mode = false;
@@ -125,7 +178,8 @@ void reset_terminal() {
 }
 
 // [perbaiki safe_exit_terminal]
-void safe_exit_terminal() {
+void safe_exit_terminal()
+{
     reset_terminal();
 }
 
@@ -140,8 +194,10 @@ void exit_shell(int exit_code)
     exit(exit_code);
 }
 
-void clear_pending_input() {
-    if (is_terminal_initialized && isatty(STDIN_FILENO)) {
+void clear_pending_input()
+{
+    if (is_terminal_initialized && isatty(STDIN_FILENO))
+    {
         tcflush(STDIN_FILENO, TCIFLUSH);
     }
 }

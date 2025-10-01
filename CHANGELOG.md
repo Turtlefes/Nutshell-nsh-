@@ -37,11 +37,18 @@
 
 
 
-**Date:** 2025-09-18 -> 2025-09-19 **Version:** 0.3.8.46 -> 0.3.8.56
+**Date:** 2025-09-18 -> 2025-09-19 **Version:** 0.3.8.46 -> 0.3.8.56 -> 0.3.8.64
 
 ### [+] Added
 - Environment child process
+- Support for pipelines execution like ``echo ls | nsh``
+- Bookmark Change directory
+- Builtin 'type'
+- History expansion "!"
 
 ### [*] Fixed
 - Alias Assignment [FIXED, caused by tokenizer]
 - Signal output on child process looking weird
+- EOF interrupt
+- Variable Assignment in one line can't be initialized
+- Cannot interrupt a file execution V2

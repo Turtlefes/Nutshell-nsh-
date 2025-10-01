@@ -367,7 +367,7 @@ long evaluate_postfix(const std::vector<std::string>& postfix) {
                 // Use std::stol with base 0 to auto-detect hex (0x) and octal (0)
                 stack.push(std::stol(token, nullptr, 0));
             } catch (...) {
-                const char* val = getenv(token.c_str());
+                const char* val = get_env_var(token);
                 try {
                     stack.push(val ? std::stol(val, nullptr, 0) : 0);
                 } catch (...) {
@@ -497,7 +497,7 @@ std::string expand_argument(const std::string &token)
                         random_seed = xrand(random_seed, 0, 32767);
                         result += std::to_string(random_seed);
                     } else {
-                        const char *val = getenv(var_name.c_str());
+                        const char *val = get_env_var(var_name);
                         if (val) result += val;
                     }
                     i = end;
@@ -570,7 +570,7 @@ std::string expand_argument(const std::string &token)
                     random_seed = xrand(random_seed, 0, 32767);
                     result += std::to_string(random_seed);
                 } else {
-                    const char *val = getenv(var_name.c_str());
+                    const char *val = get_env_var(var_name);
                     if (val) result += val;
                 }
                 i = end - 1;

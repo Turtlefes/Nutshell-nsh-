@@ -14,5 +14,9 @@ void handle_builtin_bookmark(const std::vector<std::string> &tokens);
 void handle_builtin_history(const std::vector<std::string> &tokens);
 void handle_builtin_exec(const std::vector<std::string> &tokens);
 void handle_builtin_unset(const std::vector<std::string> &tokens);
+void handle_builtin_jobs(const std::vector<std::string>& tokens);
+void handle_builtin_kill(const std::vector<std::string> &tokens);
+void handle_builtin_bg(const std::vector<std::string> &tokens);
+void handle_builtin_fg(const std::vector<std::string> &tokens);
 
 #endif // BUILTINS_H

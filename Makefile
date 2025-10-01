@@ -163,11 +163,11 @@ ifeq ($(PLATFORM),Windows)
     TARGET := $(TARGET).exe
 endif
 
-SOURCES_CPP := $(wildcard $(SRC_DIR)/*.cpp $(SRC_DIR)/**/*.cpp)
+SOURCES_CPP := $(wildcard $(SRC_DIR)/*.cc $(SRC_DIR)/**/*.cc)
 SOURCES_C   := $(wildcard $(LIB_DIR)/*.c $(LIB_DIR)/**/*.c) \
                $(wildcard $(EXTERNAL_LIB_DIR)/*.c $(EXTERNAL_LIB_DIR)/**/*.c)
 
-OBJECTS_CPP := $(patsubst $(SRC_DIR)/%.cpp,$(OBJ_DIR)/%.o,$(SOURCES_CPP))
+OBJECTS_CPP := $(patsubst $(SRC_DIR)/%.cc,$(OBJ_DIR)/%.o,$(SOURCES_CPP))
 OBJECTS_C   := $(patsubst $(LIB_DIR)/%.c,$(OBJ_DIR)/lib/%.o,$(filter $(LIB_DIR)/%,$(SOURCES_C))) \
                $(patsubst $(EXTERNAL_LIB_DIR)/%.c,$(OBJ_DIR)/external/%.o,$(filter $(EXTERNAL_LIB_DIR)/%,$(SOURCES_C)))
 OBJECTS := $(OBJECTS_CPP) $(OBJECTS_C)
@@ -190,7 +190,7 @@ $(TARGET): $(OBJECTS)
 # ========================================
 # Compilation Rules
 # ========================================
-$(OBJ_DIR)/%.o: $(SRC_DIR)/%.cpp
+$(OBJ_DIR)/%.o: $(SRC_DIR)/%.cc
 	@mkdir -p $(dir $@)
 	@echo "Compiling C++ file: $<..."
 	$(CXX) $(CXXFLAGS) $(INCLUDES) -c $< -o $@
@@ -256,14 +256,14 @@ info:
 	@echo "Detected LDFLAGS: $(LIB_LDFLAGS)"
 	@echo ""
 	@echo "=== Path and File Info ==="
-	@echo "Source files (.cpp): $(wordlist 1,5,$(SOURCES_CPP))$(if $(filter-out $(wordlist 1,5,$(SOURCES_CPP)),$(SOURCES_CPP)), ...)"
+	@echo "Source files (.cc): $(wordlist 1,5,$(SOURCES_CPP))$(if $(filter-out $(wordlist 1,5,$(SOURCES_CPP)),$(SOURCES_CPP)), ...)"
 	@echo "Source files (.c):   $(wordlist 1,5,$(SOURCES_C))$(if $(filter-out $(wordlist 1,5,$(SOURCES_C)),$(SOURCES_C)), ...)"
 	@echo "Install Prefix: $(PREFIX)"
 
 format:
 	@command -v clang-format >/dev/null 2>&1 && \
 		echo "Formatting code..." && \
-		find $(SRC_DIR) $(INC_DIR) $(LIB_DIR) $(EXTERNAL_LIB_DIR) -name "*.cpp" -o -name "*.h" -o -name "*.c" | \
+		find $(SRC_DIR) $(INC_DIR) $(LIB_DIR) $(EXTERNAL_LIB_DIR) -name "*.cc" -o -name "*.h" -o -name "*.c" | \
 		xargs clang-format -i || \
 		echo "clang-format not found, skipping formatting."
 

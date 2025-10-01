@@ -121,9 +121,9 @@ void handle_builtin_unset(const std::vector<std::string> &tokens)
         else if (unset_variable)
         {
             // Unset variable saja
-            if (getenv(name.c_str()) != nullptr)
+            if (get_env_var(name) != nullptr)
             {
-                unsetenv(name.c_str());
+                unset_env_var(name);
             }
             else
             {
@@ -144,9 +144,9 @@ void handle_builtin_unset(const std::vector<std::string> &tokens)
             bool unset_success = false;
             
             // Coba unset environment variable
-            if (getenv(name.c_str()) != nullptr)
+            if (get_env_var(name) != nullptr)
             {
-                unsetenv(name.c_str());
+                unset_env_var(name);
                 unset_success = true;
             }
             

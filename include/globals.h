@@ -13,6 +13,8 @@
 #include <stdexcept>
 #include <unordered_map>
 
+#include <sys/resource.h>
+
 namespace fs = std::filesystem;
 
 // --- Shell Information ---
@@ -52,6 +54,7 @@ extern size_t history_index;
 extern int last_exit_code;
 extern char **environ;
 extern volatile sig_atomic_t EOF_IN_interrupt;
+extern volatile int dont_execute_first;
 struct binary_hash_info {
     std::string path;
     std::string command_name;
@@ -71,18 +74,44 @@ struct var_info {
 extern std::unordered_map<std::string, var_info> environ_map;
 
 // --- Job Control Structures ---
-enum class JobStatus { RUNNING, STOPPED };
+enum class JobStatus {
+    RUNNING,        // Job sedang berjalan
+    STOPPED,        // Job dihentikan (misalnya oleh Ctrl+Z)
+    DONE,           // Job selesai dengan kode keluar 0
+    EXITED,         // Job selesai dengan kode keluar non-0
+    SIGNALED,       // Job diakhiri oleh sinyal
+    UNKNOWN         // Status tidak diketahui
+};
+
 
 struct Job {
     pid_t pgid;
     std::string command;
     JobStatus status;
+    struct rusage usage;
+    int term_status; // Holds exit code or signal number
 };
+
 
 extern std::map<int, Job> jobs;
 extern int next_job_id;
 extern volatile pid_t shell_pgid;
 extern volatile pid_t foreground_pgid;
+
+// Global variables to track the current and previous jobs
+// Job tracking
+extern int last_launched_job_id;
+// Pastikan baris ini sudah ada:
+extern int current_job_id;   // Job ID yang ditandai dengan '+' atau '%%'
+extern int previous_job_id;  // Job ID yang ditandai dengan '-'
+// Fungsi helper untuk job tracking
+int find_most_recent_job();
+int find_second_most_recent_job();
+void update_job_tracking(int finished_job_id);
+
+// Fungsi untuk melakukan ekspansi jobspec ke PGID
+int jobspec_to_pgid(const std::string& jobspec, pid_t& pgid_out);
+// Returns: 0 on success, 1 on job not found/error.
 
 // --- Extra counters (from errors) ---
 extern int history_number;

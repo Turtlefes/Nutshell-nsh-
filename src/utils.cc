@@ -6,7 +6,7 @@
 #include <cstdlib>
 #include <algorithm>
 #include <cctype>
-// utils.cpp
+// utils.cc
 #include <readline/history.h>
 
 void clear_history_list()

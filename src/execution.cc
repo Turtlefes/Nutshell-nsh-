@@ -14,37 +14,81 @@
 #include <filesystem>
 #include <unistd.h>
 #include <unordered_map>
+#include <sstream>
+#include <fstream>
+
+#include "input.h" // untuk PS0
 
 namespace fs = std::filesystem;
 
-std::string job_status_to_string(JobStatus status) { return status == JobStatus::RUNNING ? "Running" : "Stopped"; }
+// This would normally be in a header file (like globals.h)
+// For this demonstration, we define it her.
 
+// The job_status_to_string from jobs_impl.cc would be in a shared utility file.
+// We redeclare a simple version here for check_child_status.
+std::string job_status_to_string_simple(JobStatus status) { return status == JobStatus::RUNNING ? "Running" : "Stopped"; }
+
+std::vector<std::pair<int, Job>> finished_jobs;
+
+/**
+ * @brief Checks for status changes in child processes without blocking.
+ *
+ * Uses wait4() to reap terminated children and gather resource usage.
+ * Finished jobs are moved to a separate queue to be reported to the user
+ * before the next prompt.
+ */
 void check_child_status()
 {
     int status;
     pid_t pid;
-    while ((pid = waitpid(-1, &status, WNOHANG | WUNTRACED | WCONTINUED)) > 0)
+    struct rusage usage;
+
+    while ((pid = wait4(-1, &status, WNOHANG | WUNTRACED | WCONTINUED, &usage)) > 0)
     {
-        for (auto it = jobs.begin(); it != jobs.end();)
+        for (auto it = jobs.begin(); it != jobs.end(); )
         {
             if (it->second.pgid == pid || it->second.pgid == getpgid(pid))
             {
                 if (WIFEXITED(status) || WIFSIGNALED(status))
                 {
-                    if (isatty(STDIN_FILENO))
-                        std::cout << "\n[" << it->first << "]+ Done\t" << it->second.command << std::endl;
-                    it = jobs.erase(it);
+                    // Job has finished
+                    it->second.usage = usage;
+                    if (WIFEXITED(status)) {
+                        int exit_code = WEXITSTATUS(status);
+                        it->second.status = (exit_code == 0) ? JobStatus::DONE : JobStatus::EXITED;
+                        it->second.term_status = exit_code;
+                    } else { // WIFSIGNALED
+                        it->second.status = JobStatus::SIGNALED;
+                        it->second.term_status = WTERMSIG(status);
+                    }
                 }
+
                 else if (WIFSTOPPED(status))
                 {
+                    // Job has stopped
                     if (isatty(STDIN_FILENO))
                         std::cout << "\n[" << it->first << "]+ Stopped\t" << it->second.command << std::endl;
                     it->second.status = JobStatus::STOPPED;
+                    
+                    // PERBAIKAN: Update job tracking ketika job di-stop
+                    if (it->first != current_job_id) {
+                        previous_job_id = current_job_id;
+                        current_job_id = it->first;
+                    }
+                    
                     ++it;
                 }
                 else if (WIFCONTINUED(status))
                 {
+                    // Job has continued
                     it->second.status = JobStatus::RUNNING;
+                    
+                    // PERBAIKAN: Update job tracking ketika job di-continue
+                    if (it->first != current_job_id) {
+                        previous_job_id = current_job_id;
+                        current_job_id = it->first;
+                    }
+                    
                     ++it;
                 }
                 else
@@ -333,7 +377,19 @@ void launch_process(pid_t pgid, const SimpleCommand &cmd, bool foreground, const
         }
         
         std::vector<char*> envp = build_envp();
-
+        
+        /*
+        for (int i = 0; argv[i] != nullptr; i++)
+        {
+          std::cout << "arg$" << i << ": " << argv[i] << std::endl;
+        }
+        */
+        
+        std::string PS0_display = get_ps0();
+        if (!PS0_display.empty())
+        {
+          std::cout << PS0_display << "\n";
+        }
         // Eksekusi dengan path absolut
         execve(cmd.tokens[0].c_str(), argv, envp.data());
         
@@ -399,9 +455,140 @@ bool is_builtin(const std::string &command)
 {
     static const std::set<std::string> builtins = {
         "exit", "cd", "alias", "unalias", "history", "pwd",
-        "jobs", "fg", "bg", "export", "bookmark", "exec", "unset", "hash"};
+        "jobs", "fg", "bg", "kill", "export", "bookmark", "exec", "unset", "hash", "type"};
     return builtins.count(command);
 }
+
+void handle_builtin_type(const std::vector<std::string>& tokens) {
+    if (tokens.size() < 2) {
+        std::cerr << "nsh: type: usage: type [-a] name [name ...]" << std::endl;
+        last_exit_code = 1;
+        return;
+    }
+
+    bool find_all = false;
+    std::vector<std::string> names_to_check;
+
+    // Periksa opsi -a
+    size_t start_index = 1;
+    if (tokens[1] == "-a") {
+        find_all = true;
+        start_index = 2;
+    }
+    
+    // Ambil nama-nama yang akan diperiksa
+    for (size_t i = start_index; i < tokens.size(); ++i) {
+        names_to_check.push_back(tokens[i]);
+    }
+
+    if (names_to_check.empty()) {
+        std::cerr << "nsh: type: usage: type [-a] name [name ...]" << std::endl;
+        last_exit_code = 1;
+        return;
+    }
+
+    last_exit_code = 0; // Atur default exit code ke 0
+
+    for (const auto& name : names_to_check) {
+        bool found = false;
+
+        // 1. Cek sebagai alias
+        auto alias_it = aliases.find(name);
+        if (alias_it != aliases.end()) {
+            std::cout << name << " is aliased to `" << alias_it->second << "`" << std::endl;
+            found = true;
+            if (!find_all) continue;
+        }
+
+        // 2. Cek sebagai builtin
+        if (is_builtin(name)) {
+            std::cout << name << " is a shell builtin" << std::endl;
+            found = true;
+            if (!find_all) continue;
+        }
+
+        // 3. Cek sebagai variabel environment
+        auto env_it = environ_map.find(name);
+        if (env_it != environ_map.end()) {
+            const auto& var_info = env_it->second;
+            
+            if (var_info.is_default && var_info.is_exported) {
+                std::cout << name << " is a default and exported variable" << std::endl;
+            } else if (var_info.is_default) {
+                std::cout << name << " is a default variable" << std::endl;
+            } else if (var_info.is_exported) {
+                std::cout << name << " is an exported variable" << std::endl;
+            } else {
+                std::cout << name << " is a session variable" << std::endl;
+            }
+            found = true;
+            if (!find_all) continue;
+        }
+
+        // 4. Cek sebagai bookmark
+        std::ifstream bookmark_file(ns_BOOKMARK_FILE);
+        if (bookmark_file.is_open()) {
+            std::string line;
+            while (std::getline(bookmark_file, line)) {
+                size_t space_pos = line.find(' ');
+                if (space_pos != std::string::npos) {
+                    std::string bookmark_name = line.substr(0, space_pos);
+                    std::string bookmark_path = line.substr(space_pos + 1);
+                    
+                    if (bookmark_name == name) {
+                        std::cout << name << " is a bookmark to `" << bookmark_path << "`" << std::endl;
+                        found = true;
+                        bookmark_file.close();
+                        if (!find_all) break;
+                        continue; // Lanjut ke pencarian berikutnya jika -a
+                    }
+                }
+            }
+            bookmark_file.close();
+            if (found && !find_all) continue;
+        }
+
+        // 5. Cek sebagai fungsi shell (tidak diimplementasikan di sini, tapi bisa ditambahkan)
+        // Saat ini tidak ada kode untuk fungsi shell di file yang diberikan.
+
+        // 6. Cek sebagai binary/program eksternal (menggunakan PATH)
+        // Periksa apakah sudah ada di hash table
+        auto hash_it = binary_hash_loc.find(name);
+        if (hash_it != binary_hash_loc.end()) {
+            std::cout << name << " is hashed (" << hash_it->second.path << ")" << std::endl;
+            found = true;
+            if (!find_all) continue;
+        } else {
+            // Jika tidak ada di hash, cari di PATH
+            std::string path_env = get_env_var("PATH");
+            if (!path_env.empty()) {
+                std::stringstream ss(path_env);
+                std::string path_dir;
+                bool path_found = false;
+                
+                while (std::getline(ss, path_dir, ':')) {
+                    if (path_dir.empty()) continue;
+                    
+                    fs::path binary_path = fs::path(path_dir) / name;
+                    if (fs::exists(binary_path) && fs::is_regular_file(binary_path)) {
+                        std::cout << name << " is " << binary_path.string() << std::endl;
+                        found = true;
+                        path_found = true;
+                        if (!find_all) break;
+                    }
+                }
+                if (path_found && !find_all) continue;
+            }
+        }
+
+        // Jika tidak ditemukan
+        if (!found) {
+            std::cerr << "nsh: type: " << name << ": not found" << std::endl;
+            last_exit_code = 1;
+        }
+    }
+}
+
 
 int execute_builtin(const SimpleCommand &cmd)
 {
@@ -430,6 +617,10 @@ int execute_builtin(const SimpleCommand &cmd)
     {
         save_history();
         exit(tokens.size() > 1 ? std::stoi(tokens[1]) : 0);
+    }
+    else if (tokens[0] == "type")
+    {
+        handle_builtin_type(tokens);
     }
     else if (tokens[0] == "cd")
     {
@@ -473,73 +664,21 @@ int execute_builtin(const SimpleCommand &cmd)
     }
     else if (tokens[0] == "jobs")
     {
-        for (const auto &[id, job] : jobs)
-        {
-            std::cout << "[" << id << "]\t"
-                      << job_status_to_string(job.status) << "\t"
-                      << job.command << std::endl;
-        }
-        last_exit_code = 0;
+       handle_builtin_jobs(tokens);
     }
-    else if (tokens[0] == "fg" || tokens[0] == "bg")
+    else if (tokens[0] == "kill")
     {
-        if (tokens.size() < 2)
-        {
-            std::cerr << "nsh: " << tokens[0] << ": job ID required" << std::endl;
-            last_exit_code = 1;
-        }
-        else
-        {
-            try
-            {
-                int job_id = std::stoi(tokens[1].substr(tokens[1][0] == '%' ? 1 : 0));
-                if (jobs.count(job_id))
-                {
-                    pid_t pgid = jobs[job_id].pgid;
-                    if (kill(-pgid, SIGCONT) < 0)
-                    {
-                        perror("kill (SIGCONT)");
-                        last_exit_code = 1;
-                    }
-                    else
-                    {
-                        jobs[job_id].status = JobStatus::RUNNING;
-                        if (tokens[0] == "fg")
-                        {
-                            foreground_pgid = pgid;
-                            int status = wait_for_job(pgid);
-                            if (WIFSTOPPED(status))
-                            {
-                                jobs[job_id].status = JobStatus::STOPPED;
-                                std::cout << "\n[" << job_id << "]+ Stopped\t"
-                                          << jobs[job_id].command << std::endl;
-                            }
-                            else
-                                jobs.erase(job_id);
-                            foreground_pgid = 0;
-                            last_exit_code = WIFEXITED(status) ? WEXITSTATUS(status) : 1;
-                        }
-                        else
-                        {
-                            std::cout << "[" << job_id << "]\t" << jobs[job_id].command << " &" << std::endl;
-                            last_exit_code = 0;
-                        }
-                    }
-                }
-                else
-                {
-                    std::cerr << "nsh: " << tokens[0] << ": job not found: " << job_id << std::endl;
-                    last_exit_code = 1;
-                }
-            }
-            catch (...)
-            {
-                std::cerr << "nsh: " << tokens[0] << ": invalid job ID: " << tokens[1] << std::endl;
-                last_exit_code = 1;
-            }
-        }
+       handle_builtin_kill(tokens);
     }
-
+    else if (tokens[0] == "bg")
+    {
+       handle_builtin_bg(tokens);
+    }
+    else if (tokens[0] == "fg")
+    {
+       handle_builtin_fg(tokens);
+    }
+    
     for (const auto &[var_name, value] : cmd.env_vars)
     {
         if (original_env.count(var_name))
@@ -750,13 +889,25 @@ int execute_job(const ParsedCommand &cmd_group)
             if (&sc != &cmd_group.pipeline.back())
                 command_str += "| ";
         }
+        
+        // PERBAIKAN: Update job tracking
+        previous_job_id = current_job_id;  // Simpan current job sebelumnya
+        current_job_id = next_job_id;      // Set current job ke yang baru
+        
         jobs[next_job_id] = {pgid, command_str, JobStatus::RUNNING};
         std::cout << "[" << next_job_id << "] " << pgid << std::endl;
         next_job_id++;
+        
+        // Update last launched job
+        last_launched_job_id = current_job_id;
+        
         return 0;
     }
     else
     {
+        if (isatty(STDIN_FILENO)) {
+            tcsetpgrp(STDIN_FILENO, pgid);
+        }
         foreground_pgid = pgid;
         int status = 0;
         for (size_t i = 0; i < pids.size(); ++i)
@@ -776,9 +927,16 @@ int execute_job(const ParsedCommand &cmd_group)
                 if (&sc != &cmd_group.pipeline.back())
                     command_str += "| ";
             }
+            
+            // PERBAIKAN: Update job tracking untuk job yang stopped
+            previous_job_id = current_job_id;
+            current_job_id = next_job_id;
+            
             jobs[next_job_id] = {pgid, command_str, JobStatus::STOPPED};
             std::cout << "\n[" << next_job_id << "]+ Stopped\t" << command_str << std::endl;
             next_job_id++;
+            
+            last_launched_job_id = current_job_id;
         }
         foreground_pgid = 0;
         tcsetpgrp(STDIN_FILENO, shell_pgid);
@@ -791,31 +949,39 @@ int execute_job(const ParsedCommand &cmd_group)
 }
 
 
-int execute_command_list(const std::vector<ParsedCommand> &commands)
+int execute_command_list(const std::vector<ParsedCommand> &commands) 
 {
     if (commands.empty())
         return 0;
     int current_exit_code = 0;
-    for (size_t i = 0; i < commands.size(); ++i)
-    {
+    for (size_t i = 0; i < commands.size(); ++i) {
+        // Check for interrupt before executing each command
+        if (EOF_IN_interrupt) {
+            return 130; // SIGINT exit code
+        }
+        
         const auto &cmd_group = commands[i];
-        if (i > 0)
-        {
+        if (i > 0) {
             const auto &prev_op = commands[i - 1].next_operator;
             if ((prev_op == ParsedCommand::Operator::AND && current_exit_code != 0) ||
                 (prev_op == ParsedCommand::Operator::OR && current_exit_code == 0))
                 continue;
         }
+        last_exit_code = current_exit_code;
         if (cmd_group.pipeline.empty())
             continue;
-        if (cmd_group.pipeline.size() == 1 && cmd_group.pipeline[0].tokens.empty() && !cmd_group.pipeline[0].env_vars.empty())
-        {
+        if (cmd_group.pipeline.size() == 1 && cmd_group.pipeline[0].tokens.empty() && !cmd_group.pipeline[0].env_vars.empty()) {
             for (const auto &[var, val] : cmd_group.pipeline[0].env_vars)
                 setenv(var.c_str(), val.c_str(), 1);
             current_exit_code = 0;
             continue;
         }
         current_exit_code = execute_job(cmd_group);
+        
+        // Check for interrupt after executing each command
+        if (EOF_IN_interrupt) {
+            return 130;
+        }
     }
     return current_exit_code;
 }
