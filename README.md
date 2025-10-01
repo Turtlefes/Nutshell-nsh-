@@ -132,7 +132,7 @@ Join our growing community of shell enthusiasts! As a project created by a young
 
 ## 📊 Project Status
 
-Current Version: *0.3.8.46* - Actively Developed
+Current Version: *0.3.8.65* - Actively Developed
 
 - **Core Features**: Stable and functional
 - **Syntax Compatibility**: Expanding regularly
