@@ -23,6 +23,8 @@ $ echo $RANDOM
 - **RANDOM** Random integrer value 0 to 32767 (like bash)
 - **UID** Current User ID
 - **EUID** Effective User ID
+- **HISTFILE** Where to save your history file (Warning: can be in your current path)
+- **HISTSIZE** Your history max size
 - **$** Current Shell PID
 - **?** Last exit code
 
