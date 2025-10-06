@@ -37,7 +37,7 @@
 
 
 
-**Date:** 2025-09-18 -> 2025-09-19 **Version:** 0.3.8.46 -> 0.3.8.56 -> 0.3.8.64
+**Date:** 2025-09-18 -> 2025-09-23 **Version:** 0.3.8.46 -> 0.3.8.56 -> 0.3.8.64
 
 ### [+] Added
 - Environment child process
@@ -53,7 +53,7 @@
 - Variable Assignment in one line can't be initialized
 - Cannot interrupt a file execution V2
 
-**Date:** 2025-09-18 -> 2025-09-19 **Version:** 0.3.8.64 -> 0.3.8.73
+**Date:** 2025-09-23 -> 2025-10-4 **Version:** 0.3.8.64 -> 0.3.8.73
 
 ### [+] Added
 #### 0.3.8.70
@@ -76,3 +76,16 @@
 
 ### [-] Removed
 - Bookmark interactive question to clear
+
+**Date:** 2025-10-4 -> 2025-10-6 **Version:** 0.3.8.73, 0.3.8.76 (and upper)
+
+### [+] Added
+- HISTFILE support, you can customize where to save your history files
+- HISTSIZE support, you can customize your max size history
+
+### [*] Fixed
+- Replaced exit() with exit_shell() in all code that uses
+- Fixed builtin exec causes stdin fo freeze
+- Fixed builtin exec -c not working properly
+- Fixed redirection expecting file descriptor "&" as a file targets
+- Weird History void (still testing out, but fixed)

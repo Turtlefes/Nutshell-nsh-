@@ -42,3 +42,6 @@
 
 # Custom
 build/nsh
+
+# For developers only
+dev/

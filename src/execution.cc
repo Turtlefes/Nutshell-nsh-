@@ -292,7 +292,7 @@ void handle_here_document(const std::string &delimiter)
     if (temp_fd == -1)
     {
         perror("heredoc temp file");
-        exit(1);
+        exit_shell(1);
     }
 
     while (true)
@@ -335,11 +335,11 @@ void handle_redirection(const SimpleCommand &cmd)
                 int fd_in = open(expand_tilde(file_to_open).c_str(), O_RDONLY);
                 if (fd_in == -1) {
                     perror(("nsh: " + file_to_open).c_str());
-                    exit(1);
+                    exit_shell(1);
                 }
                 if (dup2(fd_in, redir.source_fd) == -1) {
                     perror("nsh: dup2 failed for stdin");
-                    exit(1);
+                    exit_shell(1);
                 }
                 close(fd_in);
                 if (redir.type == RedirectionType::HERE_DOC) {
@@ -353,14 +353,14 @@ void handle_redirection(const SimpleCommand &cmd)
                 int pipe_fd[2];
                 if (pipe(pipe_fd) == -1) {
                     perror("nsh: pipe for here-string failed");
-                    exit(1);
+                    exit_shell(1);
                 }
                 write(pipe_fd[1], redir.content.c_str(), redir.content.length());
                 write(pipe_fd[1], "\n", 1);
                 close(pipe_fd[1]);
                 if (dup2(pipe_fd[0], redir.source_fd) == -1) {
                     perror("nsh: dup2 failed for here-string");
-                    exit(1);
+                    exit_shell(1);
                 }
                 close(pipe_fd[0]);
                 break;
@@ -368,11 +368,9 @@ void handle_redirection(const SimpleCommand &cmd)
 
             case RedirectionType::REDIR_OUT:
             case RedirectionType::REDIR_OUT_APPEND:
-            case RedirectionType::REDIR_OUT_ERR:
-            case RedirectionType::REDIR_OUT_ERR_APPEND:
             {
                 flags = O_WRONLY | O_CREAT;
-                if (redir.type == RedirectionType::REDIR_OUT_APPEND || redir.type == RedirectionType::REDIR_OUT_ERR_APPEND) {
+                if (redir.type == RedirectionType::REDIR_OUT_APPEND) {
                     flags |= O_APPEND;
                 } else {
                     flags |= O_TRUNC;
@@ -381,17 +379,36 @@ void handle_redirection(const SimpleCommand &cmd)
                 int fd_out = open(expand_tilde(redir.target_file).c_str(), flags, 0666);
                 if (fd_out == -1) {
                     perror(("nsh: " + redir.target_file).c_str());
-                    exit(1);
+                    exit_shell(1);
                 }
                 
-                if (redir.type == RedirectionType::REDIR_OUT_ERR || redir.type == RedirectionType::REDIR_OUT_ERR_APPEND) {
-                    // &> dan &>>
-                    if (dup2(fd_out, 1) == -1) { perror("nsh: dup2 failed for stdout"); exit(1); }
-                    if (dup2(fd_out, 2) == -1) { perror("nsh: dup2 failed for stderr"); exit(1); }
-                } else {
-                    // > dan >> dengan fd spesifik
-                    if (dup2(fd_out, redir.source_fd) == -1) { perror("nsh: dup2 failed for stdout/stderr"); exit(1); }
+                if (dup2(fd_out, redir.source_fd) == -1) {
+                    perror("nsh: dup2 failed for stdout/stderr");
+                    exit_shell(1);
                 }
+                close(fd_out);
+                break;
+            }
+
+            case RedirectionType::REDIR_OUT_ERR:
+            case RedirectionType::REDIR_OUT_ERR_APPEND:
+            {
+                flags = O_WRONLY | O_CREAT;
+                if (redir.type == RedirectionType::REDIR_OUT_ERR_APPEND) {
+                    flags |= O_APPEND;
+                } else {
+                    flags |= O_TRUNC;
+                }
+
+                int fd_out = open(expand_tilde(redir.target_file).c_str(), flags, 0666);
+                if (fd_out == -1) {
+                    perror(("nsh: " + redir.target_file).c_str());
+                    exit_shell(1);
+                }
+                
+                // &> dan &>>
+                if (dup2(fd_out, 1) == -1) { perror("nsh: dup2 failed for stdout"); exit_shell(1); }
+                if (dup2(fd_out, 2) == -1) { perror("nsh: dup2 failed for stderr"); exit_shell(1); }
                 close(fd_out);
                 break;
             }
@@ -406,7 +423,7 @@ void handle_redirection(const SimpleCommand &cmd)
                     } else {
                         perror("nsh: dup2 failed for fd duplication");
                     }
-                    exit(1);
+                    exit_shell(1);
                 }
                 break;
             }
@@ -536,7 +553,7 @@ std::vector<char*> build_envp() {
     return envp;
 }
 
-void launch_process(pid_t pgid, const SimpleCommand &cmd, bool foreground, const std::string &original_cmd_name = "")
+void launch_process(pid_t pgid, const SimpleCommand &cmd, bool foreground, const std::string &original_cmd_name = "", bool use_env = true)
 {
     // Check if this is a builtin command in a child process
     if (!cmd.tokens.empty() && is_builtin(cmd.tokens[0]))
@@ -544,7 +561,7 @@ void launch_process(pid_t pgid, const SimpleCommand &cmd, bool foreground, const
         // Builtin in pipeline - execute and exit
         handle_redirection(cmd);
         int exit_code = execute_builtin(cmd);
-        exit(exit_code);
+        exit_shell(exit_code);
     }
 
     pid_t pid = getpid();
@@ -577,7 +594,7 @@ void launch_process(pid_t pgid, const SimpleCommand &cmd, bool foreground, const
     if (!argv)
     {
         std::cerr << "nsh: Memory allocation failed" << std::endl;
-        exit(1);
+        exit_shell(1);
     }
 
     try
@@ -616,7 +633,16 @@ void launch_process(pid_t pgid, const SimpleCommand &cmd, bool foreground, const
             }
         }
         
-        std::vector<char*> envp = build_envp();
+        std::vector<char*> envp;
+        
+        if (use_env)
+        {
+            envp = build_envp();
+        }
+        else
+        {
+            envp.push_back(nullptr);
+        }
         
         /*
         for (int i = 0; argv[i] != nullptr; i++)
@@ -649,34 +675,34 @@ void launch_process(pid_t pgid, const SimpleCommand &cmd, bool foreground, const
                 std::cerr << "nsh: hash corrupted: " << error_cmd_name << ": Permission denied" << std::endl;
             else
                 std::cerr << "nsh: " << error_cmd_name << ": Permission denied" << std::endl;
-            exit(126);
+            exit_shell(126);
         case ENOENT:
             std::cerr << "nsh: " << error_cmd_name << ": No such file or directory" << std::endl;
-            exit(127);
+            exit_shell(127);
         case ENOEXEC:
             if (is_hashed)
                 std::cerr << "nsh: hash corrupted: " << error_cmd_name << ": Exec format error" << std::endl;
             else
                 std::cerr << "nsh: " << error_cmd_name << ": Exec format error" << std::endl;
-            exit(126);
+            exit_shell(126);
         case EISDIR:
             if (is_hashed)
                 std::cerr << "nsh: hash corrupted: " << error_cmd_name << ": Is a directory" << std::endl;
             else
                 std::cerr << "nsh: " << error_cmd_name << ": Is a directory" << std::endl;
-            exit(126);
+            exit_shell(126);
         case ENOTDIR:
             std::cerr << "nsh: " << error_cmd_name << ": Not a directory" << std::endl;
-            exit(126);
+            exit_shell(126);
         case E2BIG:
             std::cerr << "nsh: " << error_cmd_name << ": Argument list too long" << std::endl;
-            exit(126);
+            exit_shell(126);
         case ELOOP:
             std::cerr << "nsh: " << error_cmd_name << ": Too many levels of symbolic links" << std::endl;
-            exit(126);
+            exit_shell(126);
         default:
             std::cerr << "nsh: " << error_cmd_name << ": " << strerror(errno) << std::endl;
-            exit(126);
+            exit_shell(126);
         }
     }
     catch (const std::bad_alloc &)
@@ -687,7 +713,7 @@ void launch_process(pid_t pgid, const SimpleCommand &cmd, bool foreground, const
         }
         free(argv);
         std::cerr << "nsh: Memory allocation failed" << std::endl;
-        exit(1);
+        exit_shell(1);
     }
 }
 
@@ -933,7 +959,7 @@ int execute_builtin(const SimpleCommand &cmd)
     return last_exit_code;
 }
 
-int execute_job(const ParsedCommand &cmd_group)
+int execute_job(const ParsedCommand &cmd_group, bool use_env)
 {
     if (cmd_group.pipeline.empty())
         return 0;
@@ -1092,11 +1118,11 @@ int execute_job(const ParsedCommand &cmd_group)
             if (!simple_cmd.tokens.empty() && is_builtin(simple_cmd.tokens[0]))
             {
                 int exit_code = execute_builtin(simple_cmd);
-                exit(exit_code);
+                exit_shell(exit_code);
             }
             else
             {
-                launch_process(pgid, simple_cmd, !cmd_group.background, original_name);
+                launch_process(pgid, simple_cmd, !cmd_group.background, original_name, use_env);
             }
         }
         else
@@ -1177,7 +1203,7 @@ int execute_job(const ParsedCommand &cmd_group)
 }
 
 
-int execute_command_list(const std::vector<ParsedCommand> &commands) 
+int execute_command_list(const std::vector<ParsedCommand> &commands, bool use_env) 
 {
     validate_and_cleanup_jobs();
     if (commands.empty())
@@ -1231,7 +1257,7 @@ int execute_command_list(const std::vector<ParsedCommand> &commands)
             continue;
         }
         
-        current_exit_code = execute_job(cmd_group);
+        current_exit_code = execute_job(cmd_group, use_env);
         last_exit_code = current_exit_code;
         
         // Check for interrupt after executing each command

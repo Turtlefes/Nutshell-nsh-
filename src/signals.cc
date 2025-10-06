@@ -171,7 +171,7 @@ void sigquit_handler(int signum) {
     } else {
         std::cout << "\nQuit (core dumped)" << std::endl;
         save_history();
-        exit(128 + SIGQUIT);
+        exit_shell(128 + SIGQUIT);
     }
 }
 
@@ -185,7 +185,7 @@ void sigterm_handler(int signum) {
     }
     std::cout << "\nReceived SIGTERM, exiting..." << std::endl;
     save_history();
-    exit(128 + SIGTERM);
+    exit_shell(128 + SIGTERM);
 }
 
 void sighup_handler(int signum) {
@@ -193,7 +193,7 @@ void sighup_handler(int signum) {
     current_signal = signum;
     std::cout << "\nSIGHUP received, exiting..." << std::endl;
     save_history();
-    exit(128 + SIGHUP);
+    exit_shell(128 + SIGHUP);
 }
 
 void sigusr1_handler(int signum) {

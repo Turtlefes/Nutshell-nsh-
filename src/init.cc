@@ -1,7 +1,9 @@
 #include "init.h"
 #include "utils.h" // untuk xrand(seed, min, max);
 #include "globals.h"
+#include "terminal.h"
 
+#include <filesystem>
 #include <iostream>
 #include <fstream>
 #include <unistd.h>
@@ -15,6 +17,9 @@
 #include <random>
 #include <ctime>
 #include <signal.h>
+#include <cstdlib>
+
+namespace fs = std::filesystem;
 
 // Tambahkan variabel global di globals.h nanti, atau di sini sebagai extern
 extern fs::path ns_SESSION_FILE;
@@ -227,7 +232,7 @@ void initialize_environment()
         else
         {
             std::cerr << "nsh: FATAL: Cannot determine HOME directory." << std::endl;
-            exit(EXIT_FAILURE);
+            exit_shell(EXIT_FAILURE);
         }
     }
     
@@ -253,7 +258,7 @@ void initialize_environment()
     catch (const fs::filesystem_error &e)
     {
         std::cerr << "nsh: FATAL: Failed to create config directory: " << e.what() << std::endl;
-        exit(EXIT_FAILURE);
+        exit_shell(EXIT_FAILURE);
     }
     
     // Initialize session manager - TAMBAHKAN BARIS INI
@@ -300,6 +305,46 @@ void load_configuration()
 
 void load_history() {
     command_history.clear();
+    
+    // get HISTFILE
+    const char* HISTFILE_env = getenv("HISTFILE");
+    if (HISTFILE_env != nullptr)
+    {
+        fs::path hist_path = HISTFILE_env;
+    
+        // buat folder jika ada parent dan belum ada
+        if (!hist_path.parent_path().empty())
+            fs::create_directories(hist_path.parent_path());
+    
+        // jika file belum ada, buat baru
+        if (!fs::exists(hist_path))
+        {
+            std::ofstream file(hist_path);
+            if (file)
+            {
+                ns_HISTORY_FILE = hist_path;
+                file.close();
+            }
+        }
+    
+        // kalau ternyata memang file biasa
+        if (fs::is_regular_file(hist_path))
+        {
+            ns_HISTORY_FILE = hist_path;
+        }
+    }
+    
+    if (const char* HISTSIZE = getenv("HISTSIZE"))
+    {
+      try {
+        int size = std::stoi(HISTSIZE);
+        if (size > 0)
+          stifle_history(size);
+      } catch (...) {
+          stifle_history(2000);
+      }
+    }
+    
     std::ifstream history_file(ns_HISTORY_FILE);
     if (history_file.is_open()) {
         std::string line;

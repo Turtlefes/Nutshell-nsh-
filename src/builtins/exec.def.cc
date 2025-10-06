@@ -1,15 +1,37 @@
+#include "execution.h"
+#include "terminal.h"
+
+#include <unistd.h>
+#include <fcntl.h>
+#include <cstring>
+#include <cerrno>
+#include <iostream>
+#include <vector>
+#include <string>
+
+// Asumsi fungsi-fungsi berikut dideklarasikan di tempat lain (misalnya, execution.h)
+// dan dapat diakses oleh file ini.
+// extern int last_exit_code;
+// std::vector<char*> build_envp();
+// std::string find_binary(const std::string& command);
+// void restore_terminal_mode();
+// void exit_shell(int code);
+
+
 void handle_builtin_exec(const std::vector<std::string> &tokens)
 {
+    // Cek jika exec dipanggil tanpa argumen (kecuali "exec" itu sendiri)
     if (tokens.size() == 1)
     {
-        // exec tanpa argumen - tidak melakukan apa-apa
+        // exec tanpa argumen - tidak melakukan apa-apa, keluar dengan sukses.
         last_exit_code = 0;
         return;
     }
 
+    // Handle opsi bantuan
     if (tokens[1] == "--help" || tokens[1] == "-h")
     {
-        std::cout << "exec: exec [-cl] [-a name] [command [arguments ...]] [redirection ...]\n"
+        std::cout << "exec: exec [-clv] [-a name] [command [arguments ...]] [redirection ...]\n"
                   << "    Replace the shell with the given command.\n\n"
                   << "    Execute COMMAND, replacing this shell with the specified program.\n"
                   << "    ARGUMENTS become the arguments to COMMAND.  If COMMAND is not specified,\n"
@@ -26,343 +48,215 @@ void handle_builtin_exec(const std::vector<std::string> &tokens)
         return;
     }
 
-    // Parse options
+    // Variabel untuk parsing
     bool empty_env = false;
     bool login_shell = false;
     bool verbose_mode = false;
     std::string zeroth_arg;
     std::vector<std::string> command_args;
     std::vector<std::string> redirections;
-    bool parsing_options = true;
-    bool has_command = false;
+    size_t i = 1; // Indeks untuk iterasi manual melalui token
 
-    for (size_t i = 1; i < tokens.size(); ++i)
+    // Fase 1: Parsing Opsi
+    while (i < tokens.size() && !tokens[i].empty() && tokens[i][0] == '-')
     {
         const std::string &token = tokens[i];
 
-        if (parsing_options && token.size() > 1 && token[0] == '-')
+        if (token == "--")
         {
-            if (token == "--")
+            i++; // Lewati "--"
+            break; // Hentikan parsing opsi
+        }
+        
+        // Handle -a yang membutuhkan argumen terpisah
+        if (token == "-a")
+        {
+            if (i + 1 < tokens.size())
             {
-                parsing_options = false;
-                continue;
-            }
-            else if (token == "-c")
-            {
-                empty_env = true;
-            }
-            else if (token == "-l")
-            {
-                login_shell = true;
-            }
-            else if (token == "-v")
-            {
-                verbose_mode = true;
-            }
-            else if (token == "-a")
-            {
-                if (i + 1 < tokens.size())
-                {
-                    zeroth_arg = tokens[++i];
-                }
-                else
-                {
-                    std::cerr << "nsh: exec: -a requires an argument" << std::endl;
-                    last_exit_code = 1;
-                    return;
-                }
+                zeroth_arg = tokens[i + 1];
+                i += 2; // Konsumsi "-a" dan argumennya
+                continue; // Lanjutkan parsing dari token berikutnya
             }
             else
             {
-                std::cerr << "nsh: exec: invalid option: " << token << std::endl;
+                std::cerr << "nsh: exec: -a requires an argument" << std::endl;
+                last_exit_code = 2; // Error penggunaan
+                return;
+            }
+        }
+        
+        // Handle opsi gabungan seperti -clv
+        for (size_t j = 1; j < token.size(); ++j)
+        {
+            char opt_char = token[j];
+            switch (opt_char)
+            {
+            case 'c':
+                empty_env = true;
+                break;
+            case 'l':
+                login_shell = true;
+                break;
+            case 'v':
+                verbose_mode = true;
+                break;
+            default:
+                std::cerr << "nsh: exec: invalid option: -" << opt_char << std::endl;
+                last_exit_code = 2;
+                return;
+            }
+        }
+        i++; // Pindah ke token berikutnya
+    }
+
+    // Fase 2: Parsing Perintah dan Pengalihan dari token yang tersisa
+    while (i < tokens.size())
+    {
+        const std::string &token = tokens[i];
+        if (token == "<" || token == ">" || token == ">>" || token == "2>" ||
+            token == "2>>" || token == "&>" || token == "&>>")
+        {
+            if (i + 1 < tokens.size())
+            {
+                redirections.push_back(token);
+                redirections.push_back(tokens[i + 1]);
+                i += 2;
+            }
+            else
+            {
+                std::cerr << "nsh: exec: syntax error: missing file for redirection" << std::endl;
                 last_exit_code = 2;
                 return;
             }
         }
         else
         {
-            parsing_options = false;
-            
-            // Check for redirection operators
-            if (token == "<" || token == ">" || token == ">>" || token == "2>" || 
-                token == "2>>" || token == "&>" || token == "&>>")
-            {
-                // Handle redirections
-                if (i + 1 < tokens.size())
-                {
-                    redirections.push_back(token);
-                    redirections.push_back(tokens[++i]);
-                }
-                else
-                {
-                    std::cerr << "nsh: exec: syntax error: missing file for redirection" << std::endl;
-                    last_exit_code = 2;
-                    return;
-                }
-            }
-            else
-            {
-                command_args.push_back(token);
-                has_command = true;
-            }
+            command_args.push_back(token);
+            i++;
         }
     }
 
-    // Handle case where no command is provided but redirections exist
-    if (!has_command && !redirections.empty())
-    {
-        // Apply redirections to current shell
-        for (size_t i = 0; i < redirections.size(); i += 2)
+    // Fungsi untuk menangani pengalihan (untuk menghindari duplikasi kode)
+    auto apply_redirections = [&]() -> bool {
+        for (size_t k = 0; k < redirections.size(); k += 2)
         {
-            const std::string &op = redirections[i];
-            const std::string &file = redirections[i + 1];
-            
-            try
-            {
-                if (op == "<")
-                {
-                    int fd = open(file.c_str(), O_RDONLY);
-                    if (fd == -1)
-                    {
-                        std::cerr << "nsh: exec: cannot open " << file << ": " << strerror(errno) << std::endl;
-                        last_exit_code = 1;
-                        return;
-                    }
-                    dup2(fd, STDIN_FILENO);
-                    close(fd);
-                }
-                else if (op == ">")
-                {
-                    int fd = open(file.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0666);
-                    if (fd == -1)
-                    {
-                        std::cerr << "nsh: exec: cannot create " << file << ": " << strerror(errno) << std::endl;
-                        last_exit_code = 1;
-                        return;
-                    }
-                    dup2(fd, STDOUT_FILENO);
-                    close(fd);
-                }
-                else if (op == ">>")
-                {
-                    int fd = open(file.c_str(), O_WRONLY | O_CREAT | O_APPEND, 0666);
-                    if (fd == -1)
-                    {
-                        std::cerr << "nsh: exec: cannot append to " << file << ": " << strerror(errno) << std::endl;
-                        last_exit_code = 1;
-                        return;
-                    }
-                    dup2(fd, STDOUT_FILENO);
-                    close(fd);
-                }
-                else if (op == "2>")
-                {
-                    int fd = open(file.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0666);
-                    if (fd == -1)
-                    {
-                        std::cerr << "nsh: exec: cannot create " << file << ": " << strerror(errno) << std::endl;
-                        last_exit_code = 1;
-                        return;
-                    }
-                    dup2(fd, STDERR_FILENO);
-                    close(fd);
-                }
-                else if (op == "2>>")
-                {
-                    int fd = open(file.c_str(), O_WRONLY | O_CREAT | O_APPEND, 0666);
-                    if (fd == -1)
-                    {
-                        std::cerr << "nsh: exec: cannot append to " << file << ": " << strerror(errno) << std::endl;
-                        last_exit_code = 1;
-                        return;
-                    }
-                    dup2(fd, STDERR_FILENO);
-                    close(fd);
-                }
-                else if (op == "&>" || op == "&>>")
-                {
-                    int flags = (op == "&>") ? (O_WRONLY | O_CREAT | O_TRUNC) : (O_WRONLY | O_CREAT | O_APPEND);
-                    int fd = open(file.c_str(), flags, 0666);
-                    if (fd == -1)
-                    {
-                        std::cerr << "nsh: exec: cannot " << (op == "&>" ? "create" : "append to") 
-                                  << " " << file << ": " << strerror(errno) << std::endl;
-                        last_exit_code = 1;
-                        return;
-                    }
-                    dup2(fd, STDOUT_FILENO);
-                    dup2(fd, STDERR_FILENO);
-                    close(fd);
-                }
+            const std::string &op = redirections[k];
+            const std::string &file = redirections[k + 1];
+
+            int flags = 0;
+            int target_fd = -1;
+
+            if (op == "<") { flags = O_RDONLY; target_fd = STDIN_FILENO; }
+            else if (op == ">") { flags = O_WRONLY | O_CREAT | O_TRUNC; target_fd = STDOUT_FILENO; }
+            else if (op == ">>") { flags = O_WRONLY | O_CREAT | O_APPEND; target_fd = STDOUT_FILENO; }
+            else if (op == "2>") { flags = O_WRONLY | O_CREAT | O_TRUNC; target_fd = STDERR_FILENO; }
+            else if (op == "2>>") { flags = O_WRONLY | O_CREAT | O_APPEND; target_fd = STDERR_FILENO; }
+            else if (op == "&>" || op == "&>>") {
+                flags = (op == "&>") ? (O_WRONLY | O_CREAT | O_TRUNC) : (O_WRONLY | O_CREAT | O_APPEND);
             }
-            catch (const std::exception &e)
+
+            int fd = open(file.c_str(), flags, 0666);
+            if (fd == -1)
             {
-                std::cerr << "nsh: exec: redirection error: " << e.what() << std::endl;
+                std::cerr << "nsh: exec: " << file << ": " << strerror(errno) << std::endl;
                 last_exit_code = 1;
-                return;
+                return false;
             }
+
+            if (op == "&>" || op == "&>>") {
+                dup2(fd, STDOUT_FILENO);
+                dup2(fd, STDERR_FILENO);
+            } else {
+                dup2(fd, target_fd);
+            }
+            close(fd);
         }
-        
+        return true;
+    };
+
+    // Handle kasus di mana tidak ada perintah yang diberikan
+    if (command_args.empty())
+    {
+        // Jika hanya ada pengalihan, terapkan dan berhasil.
+        if (!redirections.empty())
+        {
+            if (!apply_redirections()) return;
+        }
+        // Jika tidak ada perintah (misalnya, hanya "exec -c"), berhasil.
         last_exit_code = 0;
         return;
     }
 
-    if (!has_command)
+    // Terapkan opsi -a atau -l. Opsi -a lebih diprioritaskan.
+    if (!zeroth_arg.empty())
     {
-        std::cerr << "nsh: exec: command required" << std::endl;
-        last_exit_code = 1;
-        return;
+        command_args[0] = zeroth_arg;
+    }
+    else if (login_shell)
+    {
+        command_args[0] = "-" + command_args[0];
     }
 
-    // Alokasi argv aman
-    char** argv = static_cast<char**>(safe_malloc((command_args.size() + 2) * sizeof(char*)));
-    if (!argv)
+    // Mode verbose: cetak perintah sebelum dieksekusi
+    if (verbose_mode)
     {
-        std::cerr << "nsh: exec: memory allocation failed" << std::endl;
-        last_exit_code = 1;
-        return;
+        for (size_t k = 0; k < command_args.size(); ++k)
+        {
+            std::cout << command_args[k] << (k == command_args.size() - 1 ? "" : " ");
+        }
+        std::cout << std::endl;
     }
 
-    try
+    // Terapkan pengalihan sebelum eksekusi
+    if (!apply_redirections())
     {
-        size_t arg_index = 0;
+        return;
+    }
+    
+    // Siapkan argumen untuk execve
+    std::vector<char*> argv_vec;
+    for (const std::string& arg : command_args) {
+        argv_vec.push_back(const_cast<char*>(arg.c_str()));
+    }
+    argv_vec.push_back(nullptr);
+    
+    char* const* argv = argv_vec.data();
+    char** envp = nullptr;
+    std::vector<char*> envp_vec; // Deklarasikan di luar blok if agar tetap ada
+    
+    if (empty_env) {
+        static char* empty_env_arr[] = { nullptr };
+        envp = empty_env_arr;
+    } else {
+        // Asumsi build_envp() mengembalikan vector yang dikelola oleh shell
+        envp_vec = build_envp();
+        envp = envp_vec.data();
+    }
 
-        if (login_shell)
-        {
-            argv[arg_index++] = safe_strdup("-");
-        }
-        else if (!zeroth_arg.empty())
-        {
-            argv[arg_index++] = safe_strdup(zeroth_arg.c_str());
-        }
-        else
-        {
-            argv[arg_index++] = safe_strdup(command_args[0].c_str());
-        }
+    // Dapatkan path lengkap ke biner
+    std::string binary_path = find_binary(command_args[0]);
+    if (binary_path.empty()) {
+        std::cerr << "nsh: exec: " << command_args[0] << ": command not found" << std::endl;
+        last_exit_code = 127;
+        exit_shell(last_exit_code);
+    }
+    
+    restore_terminal_mode();
 
-        for (size_t i = 0; i < command_args.size(); ++i)
-        {
-            argv[arg_index++] = safe_strdup(command_args[i].c_str());
-        }
-        argv[arg_index] = nullptr;
-
-        // Verbose mode: print the command
-        if (verbose_mode)
-        {
-            std::cout << "exec: ";
-            for (size_t i = 0; argv[i] != nullptr; ++i)
-            {
-                std::cout << argv[i] << " ";
-            }
-            std::cout << std::endl;
-        }
-
-        // Handle redirections before exec
-        for (size_t i = 0; i < redirections.size(); i += 2)
-        {
-            const std::string &op = redirections[i];
-            const std::string &file = redirections[i + 1];
-            
-            if (op == "<")
-            {
-                int fd = open(file.c_str(), O_RDONLY);
-                if (fd == -1)
-                {
-                    std::cerr << "nsh: exec: cannot open " << file << ": " << strerror(errno) << std::endl;
-                    throw std::runtime_error("redirection failed");
-                }
-                dup2(fd, STDIN_FILENO);
-                close(fd);
-            }
-            else if (op == ">")
-            {
-                int fd = open(file.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0666);
-                if (fd == -1)
-                {
-                    std::cerr << "nsh: exec: cannot create " << file << ": " << strerror(errno) << std::endl;
-                    throw std::runtime_error("redirection failed");
-                }
-                dup2(fd, STDOUT_FILENO);
-                close(fd);
-            }
-            else if (op == ">>")
-            {
-                int fd = open(file.c_str(), O_WRONLY | O_CREAT | O_APPEND, 0666);
-                if (fd == -1)
-                {
-                    std::cerr << "nsh: exec: cannot append to " << file << ": " << strerror(errno) << std::endl;
-                    throw std::runtime_error("redirection failed");
-                }
-                dup2(fd, STDOUT_FILENO);
-                close(fd);
-            }
-            else if (op == "2>")
-            {
-                int fd = open(file.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0666);
-                if (fd == -1)
-                {
-                    std::cerr << "nsh: exec: cannot create " << file << ": " << strerror(errno) << std::endl;
-                    throw std::runtime_error("redirection failed");
-                }
-                dup2(fd, STDERR_FILENO);
-                close(fd);
-            }
-            else if (op == "2>>")
-            {
-                int fd = open(file.c_str(), O_WRONLY | O_CREAT | O_APPEND, 0666);
-                if (fd == -1)
-                {
-                    std::cerr << "nsh: exec: cannot append to " << file << ": " << strerror(errno) << std::endl;
-                    throw std::runtime_error("redirection failed");
-                }
-                dup2(fd, STDERR_FILENO);
-                close(fd);
-            }
-            else if (op == "&>" || op == "&>>")
-            {
-                int flags = (op == "&>") ? (O_WRONLY | O_CREAT | O_TRUNC) : (O_WRONLY | O_CREAT | O_APPEND);
-                int fd = open(file.c_str(), flags, 0666);
-                if (fd == -1)
-                {
-                    std::cerr << "nsh: exec: cannot " << (op == "&>" ? "create" : "append to") 
-                              << " " << file << ": " << strerror(errno) << std::endl;
-                    throw std::runtime_error("redirection failed");
-                }
-                dup2(fd, STDOUT_FILENO);
-                dup2(fd, STDERR_FILENO);
-                close(fd);
-            }
-        }
-
-        // Eksekusi program
-        if (empty_env)
-        {
-            char *empty_envp[] = {nullptr};
-            execve(argv[0], argv, empty_envp);
-        }
-        else
-        {
-            execvp(argv[0], argv);
-            execv(argv[0], argv); // Fallback to execv if execvp fails
-        }
-
-        // Jika exec kembali, berarti terjadi error
+    // Eksekusi perintah menggunakan execve
+    if (execve(binary_path.c_str(), argv, envp) == -1) {
         std::cerr << "nsh: exec: " << command_args[0] << ": " << strerror(errno) << std::endl;
-        last_exit_code = 1;
+        
+        if (errno == ENOENT) {
+            last_exit_code = 127; // Command not found
+        } else if (errno == EACCES) {
+            last_exit_code = 126; // Cannot execute
+        } else {
+            last_exit_code = 1; // General error
+        }
+    
+        exit_shell(last_exit_code);
     }
-    catch (const std::bad_alloc &)
-    {
-        std::cerr << "nsh: exec: memory allocation failed for arguments" << std::endl;
-        last_exit_code = 1;
-    }
-    catch (const std::exception &e)
-    {
-        std::cerr << "nsh: exec: " << e.what() << std::endl;
-        last_exit_code = 1;
-    }
-
-    // Cleanup
-    for (size_t i = 0; argv[i] != nullptr; ++i)
-        free(argv[i]);
-    free(argv);
+    
+    // Kode di sini tidak akan pernah dieksekusi jika execve berhasil
 }

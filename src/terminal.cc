@@ -192,9 +192,6 @@ void exit_shell(int exit_code)
     // Comprehensive shell exit function
     safe_exit_terminal();
     
-    // Save history
-    write_history(ns_HISTORY_FILE.c_str());
-    
     exit(exit_code);
 }
 

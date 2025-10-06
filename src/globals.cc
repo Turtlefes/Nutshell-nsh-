@@ -5,9 +5,9 @@
 //#
 // --- Shell Information ---
 const char *const shell_version   = "0.3.8";
-const char *const shell_version_long = "0.3.8.70";
+const char *const shell_version_long = "0.3.8.80";
 const char *const ext_shell_name  = "nsh";
-const char *const release_date    = "2025";
+const char *const release_date    = "2025-08-26";
 const char *const COPYRIGHT       = "Copyright (c) 2025 Turtlefes. Bayu Setiawan";
 const char *const LICENSE         = "License GPLv3+: GNU GPL version 3 or later <https://gnu.org/licenses/gpl.html>";
 std::string shell_desc = "Nutshell (nsh) - Comes packed with features (and bugs). You get the standard UNIX tools, plus some... interesting additions you won't find anywhere else. Consider the bugs as bonus content.";

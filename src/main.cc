@@ -234,7 +234,6 @@ int main(int argc, char* argv[]) {
         // kalau stdin = TTY, baru jalanin interactive shell
         run_interactive_shell();
         
-        write_history(ns_HISTORY_FILE.c_str());
         restore_terminal_mode();
         return last_exit_code;
         
@@ -530,10 +529,11 @@ void report_finished_jobs() {
 void run_interactive_shell() {
     // Gunakan readline history
     using_history();
-    read_history(ns_HISTORY_FILE.c_str());
     if (isatty(STDIN_FILENO))
       process_rcfile();
-
+    
+    load_history();  
+    
     Parser parser;
 
     while (true) {
@@ -587,7 +587,7 @@ void run_interactive_shell() {
               std::cout.flush();
             }
             
-            // Simpan history secara periodik
+            // simpan secara periodik
             if (command_history.size() % 10 == 0) {
                 write_history(ns_HISTORY_FILE.c_str());
             }
