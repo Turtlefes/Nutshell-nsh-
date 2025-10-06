@@ -8,8 +8,40 @@
 #include <readline/readline.h>
 
 #include "terminal.h"
+#include "execution.h"  // Add this include
+#include "globals.h"    // Make sure this is included
 
 #include <termios.h>
+
+#include <string>
+#include <vector>
+#include <csignal> // Pastikan ini sudah termasuk
+
+volatile sig_atomic_t current_signal = 0;
+volatile sig_atomic_t sigchld_flag = 0;
+
+// Definisikan struct untuk pasangan Nama Sinyal dan Nilai Sinyal
+struct SignalInfo {
+    std::string name; // Nama sinyal (misalnya "SIGINT")
+    int number;       // Nilai sinyal (misalnya SIGINT)
+};
+
+// Variabel terpusat berisi daftar sinyal yang relevan
+const std::vector<SignalInfo> what_signal = {
+    {"SIGCHLD", SIGCHLD},
+    {"SIGTSTP", SIGTSTP},
+    {"SIGINT",  SIGINT},
+    {"SIGQUIT", SIGQUIT},
+    {"SIGTERM", SIGTERM},
+    {"SIGHUP",  SIGHUP},
+    {"SIGCONT", SIGCONT},
+    {"SIGPIPE", SIGPIPE},
+    {"SIGTTIN", SIGTTIN},
+    {"SIGTTOU", SIGTTOU},
+    {"SIGUSR1", SIGUSR1},
+    {"SIGUSR2", SIGUSR2},
+    // Tambahkan sinyal lain jika diperlukan (misalnya SIGWINCH, SIGURG)
+};
 
 /**
  * @brief Menunggu sebuah job (process group) di foreground hingga statusnya berubah.
@@ -51,7 +83,7 @@ void clear_readline_input() {
     rl_replace_line("", 0);
     rl_crlf();
     rl_on_new_line();
-    rl_redisplay();
+    input_redisplay();
     
     // Force flush untuk memastikan output tertulis
     std::cout.flush();
@@ -60,6 +92,8 @@ void clear_readline_input() {
 
 void sigtstp_handler(int signum) {
     (void)signum;
+    current_signal = signum;
+    
     if (foreground_pgid == 0 || foreground_pgid == shell_pgid) {
         clear_readline_input();
         return;
@@ -69,23 +103,31 @@ void sigtstp_handler(int signum) {
         perror("kill (SIGTSTP)");
     } else {
         int status;
+        // Tunggu hingga proses benar-benar stopped
         waitpid(-foreground_pgid, &status, WUNTRACED);
         clear_readline_input();
 
-        for (const auto& [id, job] : jobs) {
+        // UPDATE STATUS JOB DI MEMORY - PERBAIKAN: Pastikan status di-update
+        for (auto& [id, job] : jobs) {
             if (job.pgid == foreground_pgid) {
+                job.status = JobStatus::STOPPED;
+                job.term_status = WSTOPSIG(status);
+                write_job_controle_file(job); // Update file kontrol
                 std::cout << "\n[" << id << "]+ Stopped\t" << job.command << std::endl;
                 break;
             }
         }
+        
+        // Reset foreground_pgid setelah job di-stop
+        foreground_pgid = 0;
     }
 }
 
 void sigint_handler(int signum) {
     (void)signum;
-    
+    current_signal = signum;
     // Set global interrupt flag
-    EOF_IN_interrupt = 1;
+    received_sigint = 1;
     
     if (foreground_pgid == 0 || foreground_pgid == shell_pgid) {
         // Dalam shell utama atau tidak ada foreground process
@@ -101,6 +143,7 @@ void sigint_handler(int signum) {
 
 void sigcont_handler(int signum) {
     (void)signum;
+    current_signal = signum;
     setup_terminal();
     safe_set_raw_mode();
     tcflush(STDIN_FILENO, TCIFLUSH);
@@ -119,6 +162,7 @@ void sigcont_handler(int signum) {
 
 void sigquit_handler(int signum) {
     (void)signum;
+    current_signal = signum;
     if (foreground_pgid != 0) {
         if (kill(-foreground_pgid, SIGQUIT) < 0) {
             perror("kill (SIGQUIT)");
@@ -133,6 +177,7 @@ void sigquit_handler(int signum) {
 
 void sigterm_handler(int signum) {
     (void)signum;
+    current_signal = signum;
     if (foreground_pgid != 0) {
         if (kill(-foreground_pgid, SIGTERM) < 0) {
             perror("kill (SIGTERM)");
@@ -145,6 +190,7 @@ void sigterm_handler(int signum) {
 
 void sighup_handler(int signum) {
     (void)signum;
+    current_signal = signum;
     std::cout << "\nSIGHUP received, exiting..." << std::endl;
     save_history();
     exit(128 + SIGHUP);
@@ -152,11 +198,13 @@ void sighup_handler(int signum) {
 
 void sigusr1_handler(int signum) {
     (void)signum;
+    current_signal = signum;
     std::cout << "\nReceived SIGUSR1" << std::endl;
 }
 
 void sigusr2_handler(int signum) {
     (void)signum;
+    current_signal = signum;
     std::cout << "\nReceived SIGUSR2" << std::endl;
 }
 /*
@@ -169,29 +217,37 @@ void sigwinch_handler(int signum) {
 */
 void sigpipe_handler(int signum) {
     (void)signum;
+    current_signal = signum;
 }
 
 void sigchld_handler(int signum) {
     (void)signum;
     int status;
+    sigchld_flag = 1;
+    current_signal = signum;
     pid_t pid;
 
     while ((pid = waitpid(-1, &status, WNOHANG | WUNTRACED | WCONTINUED)) > 0) {
-        for (auto it = jobs.begin(); it != jobs.end();) {
+        for (auto it = jobs.begin(); it != jobs.end(); ) {
             if (it->second.pgid == pid || it->second.pgid == getpgid(pid)) {
                 if (WIFEXITED(status) || WIFSIGNALED(status)) {
-                    if (isatty(STDIN_FILENO)) {
-                        std::cout << "\n[" << it->first << "]+ Done\t" << it->second.command << std::endl;
-                    }
+                    // Job completed
+                    it->second.status = WIFEXITED(status) ? JobStatus::EXITED : JobStatus::SIGNALED;
+                    it->second.term_status = WIFEXITED(status) ? WEXITSTATUS(status) : WTERMSIG(status);
+                    
+                    write_job_controle_file(it->second);
+                    finished_jobs.push_back(*it);
                     it = jobs.erase(it);
                 } else if (WIFSTOPPED(status)) {
-                    if (isatty(STDIN_FILENO)) {
-                        std::cout << "\n[" << it->first << "]+ Stopped\t" << it->second.command << std::endl;
-                    }
+                    // Job stopped - PERBAIKAN: Update status ke STOPPED
                     it->second.status = JobStatus::STOPPED;
+                    it->second.term_status = WSTOPSIG(status);
+                    write_job_controle_file(it->second);
                     ++it;
                 } else if (WIFCONTINUED(status)) {
+                    // Job continued
                     it->second.status = JobStatus::RUNNING;
+                    write_job_controle_file(it->second);
                     ++it;
                 } else {
                     ++it;
@@ -204,95 +260,93 @@ void sigchld_handler(int signum) {
 }
 
 /**
- * @brief Menonaktifkan sinyal dengan mengaturnya agar diabaikan (SIG_IGN).
- *
- * Fungsi ini menggunakan sigaction untuk mengatur handler sinyal
- * yang ditentukan agar diabaikan oleh kernel. Ini mencegah
- * sinyal tersebut mengganggu atau menghentikan eksekusi program.
- *
- * @param signal Nama sinyal dalam bentuk string (misalnya, "SIGINT", "SIGTSTP").
+ * @brief Menonaktifkan sinyal dengan mengaturnya agar diabaikan (SIG_IGN)
+ * menggunakan variabel terpusat what_signal.
+ * @param signal Nama sinyal dalam bentuk string (misalnya, "SIGINT").
  * @return 0 jika berhasil, -1 jika gagal.
  */
 int disable_signal(std::string signal) {
+    // 1. Cari sinyal di variabel what_signal
+    int signal_number = -1;
+    for (const auto& info : what_signal) {
+        if (info.name == signal) {
+            signal_number = info.number;
+            break;
+        }
+    }
+
+    if (signal_number == -1) {
+        // Sinyal tidak ditemukan
+        return -1;
+    }
+
+    // 2. Terapkan SIG_IGN menggunakan nilai sinyal yang ditemukan
     struct sigaction sa;
     sigemptyset(&sa.sa_mask);
     sa.sa_flags = 0;
     sa.sa_handler = SIG_IGN; // Mengabaikan sinyal
 
-    if (signal == "SIGCHLD") {
-        return sigaction(SIGCHLD, &sa, NULL);
-    } else if (signal == "SIGTSTP") {
-        return sigaction(SIGTSTP, &sa, NULL);
-    } else if (signal == "SIGINT") {
-        return sigaction(SIGINT, &sa, NULL);
-    } else if (signal == "SIGQUIT") {
-        return sigaction(SIGQUIT, &sa, NULL);
-    } else if (signal == "SIGTERM") {
-        return sigaction(SIGTERM, &sa, NULL);
-    } else if (signal == "SIGHUP") {
-        return sigaction(SIGHUP, &sa, NULL);
-    } else if (signal == "SIGCONT") {
-        return sigaction(SIGCONT, &sa, NULL);
-    } else if (signal == "SIGPIPE") {
-        return sigaction(SIGPIPE, &sa, NULL);
-    } else if (signal == "SIGTTIN") {
-        return sigaction(SIGTTIN, &sa, NULL);
-    } else if (signal == "SIGTTOU") {
-        return sigaction(SIGTTOU, &sa, NULL);
-    } else if (signal == "SIGUSR1") {
-        return sigaction(SIGUSR1, &sa, NULL);
-    } else if (signal == "SIGUSR2") {
-        return sigaction(SIGUSR2, &sa, NULL);
-    }
-
-    return -1; // Sinyal tidak dikenali
+    return sigaction(signal_number, &sa, NULL);
 }
+
 /**
- * @brief Mengembalikan handler sinyal ke perilaku default.
- *
- * Fungsi ini mengembalikan sinyal ke perilaku default (SIG_DFL)
- * yang ditetapkan oleh sistem operasi. Ini sangat penting untuk
- * proses anak yang akan mengeksekusi program baru.
- *
- * @param signal Nama sinyal dalam bentuk string (misalnya, "SIGINT", "SIGCHLD").
+ * @brief Mengembalikan handler sinyal ke perilaku default (SIG_DFL)
+ * menggunakan variabel terpusat what_signal.
+ * @param signal Nama sinyal dalam bentuk string (misalnya, "SIGINT").
  * @return 0 jika berhasil, -1 jika gagal.
  */
 int restore_signal(std::string signal) {
+    // 1. Cari sinyal di variabel what_signal
+    int signal_number = -1;
+    for (const auto& info : what_signal) {
+        if (info.name == signal) {
+            signal_number = info.number;
+            break;
+        }
+    }
+
+    if (signal_number == -1) {
+        // Sinyal tidak ditemukan
+        return -1;
+    }
+
+    // 2. Terapkan SIG_DFL menggunakan nilai sinyal yang ditemukan
     struct sigaction sa;
     sigemptyset(&sa.sa_mask);
     sa.sa_flags = 0;
     sa.sa_handler = SIG_DFL; // Mengembalikan ke perilaku default
 
-    if (signal == "SIGCHLD") {
-        return sigaction(SIGCHLD, &sa, NULL);
-    } else if (signal == "SIGTSTP") {
-        return sigaction(SIGTSTP, &sa, NULL);
-    } else if (signal == "SIGINT") {
-        return sigaction(SIGINT, &sa, NULL);
-    } else if (signal == "SIGQUIT") {
-        return sigaction(SIGQUIT, &sa, NULL);
-    } else if (signal == "SIGTERM") {
-        return sigaction(SIGTERM, &sa, NULL);
-    } else if (signal == "SIGHUP") {
-        return sigaction(SIGHUP, &sa, NULL);
-    } else if (signal == "SIGCONT") {
-        return sigaction(SIGCONT, &sa, NULL);
-    } else if (signal == "SIGPIPE") {
-        return sigaction(SIGPIPE, &sa, NULL);
-    } else if (signal == "SIGTTIN") {
-        return sigaction(SIGTTIN, &sa, NULL);
-    } else if (signal == "SIGTTOU") {
-        return sigaction(SIGTTOU, &sa, NULL);
-    } else if (signal == "SIGUSR1") {
-        return sigaction(SIGUSR1, &sa, NULL);
-    } else if (signal == "SIGUSR2") {
-        return sigaction(SIGUSR2, &sa, NULL);
-    }
-
-    return -1; // Sinyal tidak dikenali
+    return sigaction(signal_number, &sa, NULL);
 }
 
+/**
+ * @brief Mendapatkan sinyal yang sedang diterima
+ * @return Nilai sinyal yang sedang aktif, 0 jika tidak ada sinyal
+ */
+int get_current_signal() {
+    return current_signal;
+}
 
+/**
+ * @brief Reset variabel current_signal ke 0
+ */
+void reset_current_signal() {
+    current_signal = 0;
+}
+
+/**
+ * @brief Mendapatkan nama sinyal dari nilai numerik
+ * @param signum Nilai sinyal
+ * @return Nama sinyal sebagai string, "UNKNOWN" jika tidak dikenali
+ */
+std::string get_signal_name(int signum) {
+    for (const auto& info : what_signal) {
+        if (info.number == signum) {
+            return info.name;
+        }
+    }
+    return "UNKNOWN";
+}
 
 void setup_signals() {
     struct sigaction sa;

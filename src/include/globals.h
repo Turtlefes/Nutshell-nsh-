@@ -12,18 +12,21 @@
 #include <cstring>
 #include <stdexcept>
 #include <unordered_map>
+#include <string>
 
 #include <sys/resource.h>
 
 namespace fs = std::filesystem;
 
 // --- Shell Information ---
+extern std::string program_name;
 extern const char *const shell_version;
 extern const char *const shell_version_long;
 extern const char *const ext_shell_name;
 extern const char *const release_date;
 extern const char *const COPYRIGHT;
 extern const char *const LICENSE;
+extern std::string shell_desc;
 
 // --- Terminal Colors ---
 extern const char *const RESET;
@@ -53,7 +56,7 @@ extern std::vector<std::string> command_history;
 extern size_t history_index;
 extern int last_exit_code;
 extern char **environ;
-extern volatile sig_atomic_t EOF_IN_interrupt;
+extern volatile sig_atomic_t received_sigint;
 extern volatile int dont_execute_first;
 struct binary_hash_info {
     std::string path;
@@ -61,6 +64,10 @@ struct binary_hash_info {
     size_t hits = 0;
 };
 extern std::unordered_map<std::string, binary_hash_info> binary_hash_loc;
+// globals.h - Tambahkan di bagian variabel global
+extern fs::path ns_SESSION_FILE;
+extern int current_session_number;
+
 
 // --- Environ management ---
 void set_env_var(const std::string& name, const std::string& value, bool is_exported = false);
@@ -90,12 +97,15 @@ struct Job {
     JobStatus status;
     struct rusage usage;
     int term_status; // Holds exit code or signal number
+    pid_t shell_pid = 0;        // PID dari shell pemilik job (Session ID)
+    struct timeval start_tv = {}; // Waktu mulai job (untuk CPU %)
 };
 
 
 extern std::map<int, Job> jobs;
 extern int next_job_id;
 extern volatile pid_t shell_pgid;
+extern volatile pid_t shell_pid;
 extern volatile pid_t foreground_pgid;
 
 // Global variables to track the current and previous jobs
@@ -107,6 +117,8 @@ extern int previous_job_id;  // Job ID yang ditandai dengan '-'
 // Fungsi helper untuk job tracking
 int find_most_recent_job();
 int find_second_most_recent_job();
+bool is_job_active(int job_id);
+int get_active_job_count();
 void update_job_tracking(int finished_job_id);
 
 // Fungsi untuk melakukan ekspansi jobspec ke PGID

@@ -4,7 +4,7 @@
 #include "init.h"
 #include "parser.h"
 #include "execution.h"
-#include "utils.h"
+#include "utils.h" // xrand and others
 #include "input.h"
 
 #include <iostream>
@@ -17,14 +17,22 @@
 #include <csignal> // Added for strsignal
 #include <iomanip> // Added for std::left, std::setw
 
+#include <unistd.h>     // For usleep (Unix-like sleep for microseconds)
+#include <cstdlib>      // For system("clear") or similar
+#include <ctime>        // For seeding random number generator
+#include <random>       // For better random text selection
+#include <thread>       // For std::this_thread::sleep_for (alternative to usleep)
+#include <chrono>       // For use with std::this_thread::sleep_for
+
+
 namespace fs = std::filesystem;
 
 // Sertakan header Readline
 #include <readline/readline.h>
 #include <readline/history.h>
 
-// Tell the compiler that this global variable is defined in another file.
-extern std::vector<std::pair<int, Job>> finished_jobs;
+// program nama
+std::string program_name;
 
 // Deklarasi fungsi untuk menangani argumen command line
 void handle_command_line_args(int argc, char* argv[]);
@@ -37,7 +45,158 @@ void run_subshell_command(const std::string& command);
 void report_finished_jobs();
 std::string job_status_to_string(JobStatus status, int term_status);
 
+void run_nutshell_easter_egg() {
+    // Definisi frame animasi kacang pecah (5 baris per frame)
+    const std::vector<std::string> nut_frames = {
+        // Frame 1: Kulit tertutup rapat
+        "      _     ",
+        "     ( )    ",
+        "    /   \\   ",
+        "   |     |  ",
+        "   \\_ _/   ",
+        
+        // Frame 2: Sedikit terbuka
+        "      _ _   ",
+        "     ( V )  ",
+        "    / / \\ \\ ",
+        "   | |   | |",
+        "   \\_ _ _/  ",
+        
+        // Frame 3
+        "      _   _ ",
+        "     ( ) ( )",
+        "    / /   \\ \\",
+        "   | /     \\|",
+        "   \\_ _ _ _/ ",
+        
+        // Frame 4
+        "     /    \\ ",
+        "    /      \\",
+        "   (        )",
+        "   |        |",
+        "   \\_      _/ ",
+        
+        // Frame 5: Pembukaan yang cepat
+        "    /\\   /\\ ",
+        "   /  \\_/  \\",
+        "  (        )",
+        "  |        |",
+        "  \\_      _/ ",
+        
+        // Frame 6
+        "   /\\     /\\",
+        "  /  \\___/  \\",
+        " (          )",
+        " |          |",
+        " \\_        _/ ",
+        
+        // Frame 7
+        "  /\\       /\\",
+        " /  \\_____/  \\",
+        "(            )",
+        "|            |",
+        "\\_          _/ ",
+
+        // Frame 8
+        " /\\         /\\",
+        "/  \\_______/  \\",
+        "(              )",
+        "|              |",
+        "\\_            _/ ",
+        
+        // Frame 9 (Puncak terbuka)
+        "/\\___________/\\",
+        "\\  _________  /",
+        " (           ) ",
+        "  |         |  ",
+        "  \\_       _/  ",
+        
+        // Frame 10 (Mulai muncul kacang)
+        "/\\___________/\\",
+        "\\  _________  /",
+        " (   o   o   ) ",
+        "  |    v    |  ",
+        "  \\_       _/  "
+    };
+    
+    // Konfigurasi Kacang Hidup
+    const std::string alive_nut_top =
+        "\t\t/\\___________/\\ \n"
+        "\t\t\\  _________  /\n";
+    const std::string alive_nut_face = 
+        "\t\t (   o   o   ) \n"
+        "\t\t  |    v    |  \n"
+        "\t\t  \\_       _/  ";
+
+    // Teks random dari kacang hidup
+    const std::vector<std::string> random_texts = {
+        "Did you just crack my shell?",
+        "Welcome to the nutshell!",
+        "I'm more than just a nut.",
+        "The kernel of truth is here.",
+        "Shell-ebrate good times!",
+        "Why so serious?",
+        "C++ is my favorite flavor.",
+        "Don't worry, be happy nut.",
+        "Segmentation fault? Sounds tasty."
+    };
+    
+    // Gunakan xrand untuk memilih teks random
+    int rand_idx = xrand(time(NULL), 0, random_texts.size() - 1);
+    std::string random_message = random_texts[rand_idx];
+    
+    int num_frames = nut_frames.size() / 5;
+    auto delay = std::chrono::milliseconds(100); // 100ms delay per frame
+
+    // Initial clear (Clear screen, move cursor home)
+    std::cout << "\033[2J\033[H"; 
+    
+    // Animasi pembukaan (Frame 1 - 10)
+    for (int i = 0; i < num_frames; ++i) {
+        // Clear area dan posisikan kursor
+        std::cout << "\033[2J\033[H"; 
+        std::cout << "\n\n"; 
+        for (int j = 0; j < 5; ++j) {
+            std::cout << "\t\t" << nut_frames[i * 5 + j] << std::endl;
+        }
+        std::cout.flush();
+        std::this_thread::sleep_for(delay);
+    }
+    
+    // Frame berbicara - dengan clear screen yang tepat
+    std::string speech_bubble = 
+        "\t\t /" + std::string(random_message.length() + 2, '-') + "\\\n"
+        "\t\t<  " + random_message + "  >\n"
+        "\t\t \\" + std::string(random_message.length() + 2, '-') + "/\n";
+        
+    auto speak_delay = std::chrono::milliseconds(200);
+
+    for (int i = 0; i < 5; ++i) { // Kurangi iterasi untuk menghindari penumpukan
+        // Clear screen dan posisikan kursor di atas
+        std::cout << "\033[2J\033[H"; 
+        
+        // Tampilkan gelembung bicara
+        std::cout << speech_bubble << std::endl;
+        
+        // Tampilkan kacang hidup
+        std::cout << alive_nut_top
+                  << alive_nut_face << "\n";
+                  
+        std::cout.flush();
+        std::this_thread::sleep_for(speak_delay); 
+    }
+    
+    // Tampilkan frame terakhir lebih lama
+    std::cout << "\033[2J\033[H"; 
+    std::cout << speech_bubble << std::endl;
+    std::cout << alive_nut_top
+              << alive_nut_face << "\n";
+              
+    std::cout << "\n\n\t\t--- Crack succesfully ---\n" << std::endl;
+}
+
 int main(int argc, char* argv[]) {
+    program_name = argv[0];
     try {
         setup_terminal();
         setup_signals();
@@ -94,10 +253,30 @@ int main(int argc, char* argv[]) {
     }
 }
 
+void show_program_help()
+{
+  std::cout << "Turtlefes Nutshell, version " << shell_version_long << std::endl;
+  std::cout << "Usage: " << program_name << " [OPTIONS] [FILE]\n\n"
+            << shell_desc << "\n"
+            << "\nOptions:\n"
+            << std::left
+            << std::setw(30) << "  -c, --command COMMAND" << "Execute COMMAND and exit\n"
+            << std::setw(30) << "  -f, --file FILE" << "Execute commands from file targets\n"
+            << std::setw(30) << "  -h, --help" << "Show this help message\n"
+            << std::setw(30) << "  -v, --version" << "Show version information\n\n"
+            << "If FILE is provided, execute commands from FILE\n"
+            << "Crack open the shell wisely.\n";
+}
+
 void handle_command_line_args(int argc, char* argv[]) {
     std::vector<std::string> args(argv + 1, argv + argc);
     
     for (size_t i = 0; i < args.size(); ++i) {
+        if (args[i] == "crack" || args[i] == "crack open")
+        {
+          run_nutshell_easter_egg();
+          exit_shell(last_exit_code);
+        }
         if (args[i] == "-c" || args[i] == "--command") {
             if (i + 1 < args.size()) {
                 std::string command = args[i + 1];
@@ -109,19 +288,23 @@ void handle_command_line_args(int argc, char* argv[]) {
             }
         }
         else if (args[i] == "--help" || args[i] == "-h") {
-            std::cout << "Turtlefes Nutshell, version " << shell_version_long << std::endl;
-            std::cout << "Usage: " << argv[0] << " [OPTIONS] [FILE]\n\n"
-                      << "Options:\n"
-                      << "  -c, --command COMMAND  Execute COMMAND and exit\n"
-                      << "  -h, --help             Show this help message\n"
-                      << "  -v, --version          Show version information\n\n"
-                      << "If FILE is provided, execute commands from FILE\n";
-            exit_shell(0);
+            show_program_help();
+            exit_shell(last_exit_code);
         }
         else if (args[i] == "--version" || args[i] == "-v") {
             std::cout << "Turtlefes Nutshell, version " << shell_version_long << 
-            "\n" << COPYRIGHT << "\n" << LICENSE << "\n\nThis is free software; you are free to change and redistribute it." << "\nThere is NO WARRANTY, to the extent permitted by law." << std::endl;
+            "\n" << COPYRIGHT << "\n" << LICENSE << "\n\nHomepage: https://github.com/Turtlefes/Nutshell-nsh-\n\nThis is free software; you are free to change and redistribute it." << "\nThere is NO WARRANTY, to the extent permitted by law." << std::endl;
             exit_shell(0);
+        }
+        else if (args[i] == "--file" || args[i] == "-f") {
+            if (i + 1 < args.size()) {
+                std::string file = args[i + 1];
+                execute_script_file(file);
+                exit_shell(last_exit_code);
+            } else {
+                std::cerr << "nsh: option requires target file -- '" << args[i] << "'" << std::endl;
+                exit_shell(1);
+            }
         }
         else if (args[i][0] != '-') {
             // Ini kemungkinan nama file script
@@ -164,7 +347,7 @@ void execute_script_file(const std::string& filename) {
     // Set handler khusus untuk script execution
     script_sigint_action.sa_handler = [](int sig) {
         last_exit_code = 130; // 128 + SIGINT
-        EOF_IN_interrupt = 1; // Pastikan flag interrupt di-set
+        received_sigint = 1; // Pastikan flag interrupt di-set
         throw std::runtime_error("Script execution interrupted");
     };
     sigemptyset(&script_sigint_action.sa_mask);
@@ -183,7 +366,7 @@ void execute_script_file(const std::string& filename) {
                 }
                 
                 // Check for Ctrl+C interruption before processing each line
-                if (EOF_IN_interrupt) {
+                if (received_sigint) {
                     last_exit_code = 130;
                     script_interrupted = true;
                     break;
@@ -195,7 +378,7 @@ void execute_script_file(const std::string& filename) {
                         last_exit_code = execute_command_list(commands);
                         
                         // Jika command mengatur exit code yang menunjukkan interrupt
-                        if (last_exit_code == 130 || EOF_IN_interrupt) {
+                        if (last_exit_code == 130 || received_sigint) {
                             script_interrupted = true;
                             break;
                         }
@@ -208,14 +391,14 @@ void execute_script_file(const std::string& filename) {
                 
                 // Reset interrupt flag setelah memproses setiap baris
                 // TIDAK reset di sini karena kita ingin interrupt tetap berlaku
-                // EOF_IN_interrupt = 0; // HAPUS BARIS INI
+                // received_sigint = 0; // HAPUS BARIS INI
             }
         } else {
             // No nsh shebang, process the entire file including first line
             std::string line = first_line;
             if (!line.empty() && line.find_first_not_of(" \t") != std::string::npos) {
                 // Check for interruption
-                if (EOF_IN_interrupt) {
+                if (received_sigint) {
                     last_exit_code = 130;
                     script_interrupted = true;
                 } else {
@@ -223,7 +406,7 @@ void execute_script_file(const std::string& filename) {
                         auto commands = parser.parse(line);
                         if (!commands.empty()) {
                             last_exit_code = execute_command_list(commands);
-                            if (last_exit_code == 130 || EOF_IN_interrupt) {
+                            if (last_exit_code == 130 || received_sigint) {
                                 script_interrupted = true;
                             }
                         }
@@ -233,7 +416,7 @@ void execute_script_file(const std::string& filename) {
                     }
                 }
                 // TIDAK reset interrupt flag di sini
-                // EOF_IN_interrupt = 0; // HAPUS BARIS INI
+                // received_sigint = 0; // HAPUS BARIS INI
             }
             
             if (!script_interrupted) {
@@ -243,7 +426,7 @@ void execute_script_file(const std::string& filename) {
                     }
                     
                     // Check for interruption
-                    if (EOF_IN_interrupt) {
+                    if (received_sigint) {
                         last_exit_code = 130;
                         script_interrupted = true;
                         break;
@@ -253,7 +436,7 @@ void execute_script_file(const std::string& filename) {
                         auto commands = parser.parse(line);
                         if (!commands.empty()) {
                             last_exit_code = execute_command_list(commands);
-                            if (last_exit_code == 130 || EOF_IN_interrupt) {
+                            if (last_exit_code == 130 || received_sigint) {
                                 script_interrupted = true;
                                 break;
                             }
@@ -264,7 +447,7 @@ void execute_script_file(const std::string& filename) {
                     }
                     
                     // TIDAK reset interrupt flag di sini
-                    // EOF_IN_interrupt = 0; // HAPUS BARIS INI
+                    // received_sigint = 0; // HAPUS BARIS INI
                 }
             }
         }
@@ -283,7 +466,7 @@ void execute_script_file(const std::string& filename) {
     
     // Clear interrupt flag HANYA JIKA script tidak diinterrupt
     if (!script_interrupted) {
-        EOF_IN_interrupt = 0;
+        received_sigint = 0;
     }
     
     if (script_interrupted) {
@@ -366,7 +549,8 @@ void run_interactive_shell() {
         //std::cout << "\r\033[K";
         //std::cout.flush();
         
-        EOF_IN_interrupt = 0;
+        received_sigint = 0;
+        reset_current_signal();
 
         std::string main_prompt = get_prompt_string();
         

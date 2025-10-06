@@ -8,6 +8,7 @@
 #include <cctype>
 // utils.cc
 #include <readline/history.h>
+#include <readline/readline.h>
 
 void clear_history_list()
 {
@@ -195,4 +196,20 @@ void clear_screen() {
         // fallback terakhir
         std::cout << std::string(50, '\n');
     }
+}
+
+void input_redisplay()
+{
+  rl_redisplay();
+}
+
+// In utils.cc
+bool is_string_numeric(const std::string& s) {
+    if (s.empty()) return false;
+    for (char c : s) {
+        if (!std::isdigit(c)) {
+            return false;
+        }
+    }
+    return true;
 }

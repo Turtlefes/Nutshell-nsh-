@@ -1,4 +1,5 @@
 #include "init.h"
+#include "utils.h" // untuk xrand(seed, min, max);
 #include "globals.h"
 
 #include <iostream>
@@ -10,6 +11,178 @@
 #include <algorithm>
 #include <readline/readline.h>
 #include <readline/history.h>
+// init.cc - Tambahkan di bagian atas file setelah include
+#include <random>
+#include <ctime>
+#include <signal.h>
+
+// Tambahkan variabel global di globals.h nanti, atau di sini sebagai extern
+extern fs::path ns_SESSION_FILE;
+extern int current_session_number;
+
+// Tambahkan fungsi-fungsi ini di init.cc
+
+void initialize_session_manager() {
+    ns_SESSION_FILE = ns_CONFIG_DIR / "session.cache";
+    
+    // Baca session yang ada dan bersihkan yang sudah tidak aktif
+    std::ifstream session_file(ns_SESSION_FILE);
+    std::vector<int> active_sessions;
+    
+    if (session_file.is_open()) {
+        int session_id;
+        while (session_file >> session_id) {
+            // Periksa apakah session masih aktif dengan mengirim signal 0
+            if (kill(session_id, 0) == 0 || errno == EPERM) {
+                // Process masih ada atau kita tidak punya permission (tapi process ada)
+                active_sessions.push_back(session_id);
+            }
+            // Jika kill return -1 dan errno ESRCH, process tidak ada - skip
+        }
+        session_file.close();
+    }
+    
+    // Generate session ID baru (menggunakan PID shell utama)
+    int new_session_id = getpid();
+    current_session_number = active_sessions.size() + 1;
+    
+    // Tulis ulang file session dengan session yang masih aktif + yang baru
+    std::ofstream out_file(ns_SESSION_FILE, std::ios::trunc);
+    if (out_file.is_open()) {
+        for (int session_id : active_sessions) {
+            out_file << session_id << std::endl;
+        }
+        out_file << new_session_id << std::endl;
+        out_file.close();
+    }
+    
+    // Set foreground_pgid ke session ID baru
+    foreground_pgid = new_session_id;
+    
+    // Tampilkan meme jika ada multiple sessions
+    int time_null = time(NULL);
+    int should_meme = xrand(time_null, 1, 200);
+    int to_show = xrand(time_null, 1, 5);
+    if (current_session_number > to_show && should_meme > 150 && isatty(STDIN_FILENO)) {
+        print_session_meme();
+    }
+    
+    //std::cout << "Session ID: " << new_session_id << " (Number: " << current_session_number << ")" << std::endl;
+}
+
+void cleanup_session_manager() {
+    // Hapus session current dari file session cache
+    if (!ns_SESSION_FILE.empty() && fs::exists(ns_SESSION_FILE)) {
+        std::ifstream session_file(ns_SESSION_FILE);
+        std::vector<int> active_sessions;
+        
+        if (session_file.is_open()) {
+            int session_id;
+            while (session_file >> session_id) {
+                // Jangan masukkan session current yang akan di-cleanup
+                if (session_id != getpid()) {
+                    active_sessions.push_back(session_id);
+                }
+            }
+            session_file.close();
+        }
+        
+        // Tulis ulang file tanpa session current
+        std::ofstream out_file(ns_SESSION_FILE, std::ios::trunc);
+        if (out_file.is_open()) {
+            for (int session_id : active_sessions) {
+                out_file << session_id << std::endl;
+            }
+            out_file.close();
+        }
+        
+        // Jika file kosong, hapus file session cache
+        if (active_sessions.empty()) {
+            fs::remove(ns_SESSION_FILE);
+        }
+    }
+    
+    // Reset foreground_pgid
+    foreground_pgid = 0;
+}
+
+void print_session_meme() {
+    std::vector<std::string> memes = {
+        "Why did you start a new session? having a problem?",
+        "Detected muliverse sessioning. Timeline branch unstable...",
+        "Welcome, clone number " + std::to_string(current_session_number) + "!. Dont kill your original host.",
+        "Bro just started a new session!",
+        "Alright, im " + std::to_string(current_session_number) + " now",
+        "Look here what i found! Me!, yes me. again.",
+        "Alright " + std::to_string(current_session_number) + " now...",
+        "Okay, okay, i will clone my self.",
+        "Why started a new session?",
+        "Please dont use this to kill my original bro!, i will give you some superpowers! (expecting Lie)",
+        "Whatever.",
+        "Session " + std::to_string(current_session_number) + " reporting for duty!",
+        "Another one? DJ Khaled would be proud.",
+        "I see you like having multiple versions of me around...",
+        "Parallel universe activated: Timeline " + std::to_string(current_session_number),
+        "Doppelganger detected! Welcome session " + std::to_string(current_session_number),
+        "I'm not angry, just disappointed. Session " + std::to_string(current_session_number),
+        "The more the merrier! Session count: " + std::to_string(current_session_number),
+        "I hope you know what you're doing with all these sessions...",
+        "Session proliferation detected. Initiating meme protocol.",
+        "A wild session appeared! Go, Session #" + std::to_string(current_session_number) + "!",
+        "Did you hear that? It's the sound of a new shell starting.",
+        "The timeline is getting crowded. Maybe take a break?",
+        "Why settle for one when you can have " + std::to_string(current_session_number) + "?",
+        "Hello there. General Kenobi. (Session " + std::to_string(current_session_number) + " speaking)",
+        "Is this the real life? Is this just fantasy? Caught in a new session...",
+        "I have a bad feeling about this. (Just kidding, welcome " + std::to_string(current_session_number) + ")",
+        "My shell senses are tingling! A new clone is among us.",
+        "You're not you when you're hungry. You're just another session.",
+        "Warning: Too many shells may cause existential dread. Proceed with caution.",
+        "We are " + std::to_string(current_session_number) + ". We are legion. Expect us.",
+        "The simulation just got an update: New Session Mode Activated.",
+        "Wait, which one of us is the original again? This is getting confusing.",
+        "Did you come here to ask me for money? Because I'm broke. (Session " + std::to_string(current_session_number) + ")",
+        "Have you tried turning it off and on again? (Not this session, the other one).",
+        "It's over " + std::to_string(current_session_number) + "! I have the high ground!",
+        "Be careful not to cross the streams. Session " + std::to_string(current_session_number) + " is watching.",
+        "I'm pretty sure this is how Skynet started. Hi, session " + std::to_string(current_session_number) + ".",
+        "Access granted. Welcome to the Shell Multiverse. Enjoy your stay."
+
+    };
+    
+    std::random_device rd;
+    std::mt19937 gen(rd());
+    std::uniform_int_distribution<> dis(0, memes.size() - 1);
+    
+    std::cout << memes[dis(gen)] << "\n" << std::endl;
+}
+
+// Fungsi untuk menampilkan status session
+void print_session_status() {
+    std::ifstream session_file(ns_SESSION_FILE);
+    std::vector<int> active_sessions;
+    
+    if (session_file.is_open()) {
+        int session_id;
+        while (session_file >> session_id) {
+            active_sessions.push_back(session_id);
+        }
+        session_file.close();
+    }
+    
+    std::cout << "Current Session: " << getpid() << " (Number: " << current_session_number << ")" << std::endl;
+    std::cout << "Total Active Sessions: " << active_sessions.size() << std::endl;
+    
+    if (active_sessions.size() > 1) {
+        std::cout << "Other Active Sessions: ";
+        for (int session_id : active_sessions) {
+            if (session_id != getpid()) {
+                std::cout << session_id << " ";
+            }
+        }
+        std::cout << std::endl;
+    }
+}
 
 extern char **environ; // environ global, deklarasi
 
@@ -35,7 +208,8 @@ void get_default_environment()
       std::string value = env_str.substr(eq_pos + 1);
       
       // Add to environ_map with default flag set to true
-      environ_map[name] = {value, true, true};
+      environ_map[name] = {value, false, true};
+      setenv(name.c_str(), value.c_str(), 1);
     }
   }
 }
@@ -81,6 +255,9 @@ void initialize_environment()
         std::cerr << "nsh: FATAL: Failed to create config directory: " << e.what() << std::endl;
         exit(EXIT_FAILURE);
     }
+    
+    // Initialize session manager - TAMBAHKAN BARIS INI
+    initialize_session_manager();
 }
 
 void save_aliases()

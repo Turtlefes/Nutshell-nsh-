@@ -2,14 +2,15 @@
 # Project Configuration
 # ========================================
 PROJECT_NAME := nsh
-VERSION := 0.3.8
+VERSION := 0.3.8.73
 
+# --- PATHS (Adjusted for new structure) ---
 SRC_DIR := src
-INC_DIR := include
+INC_DIR := $(SRC_DIR)/include
+LIB_DIR := $(SRC_DIR)/lib
+BUILTINS_DIR := $(SRC_DIR)/builtins
 BUILD_DIR := build
 OBJ_DIR := $(BUILD_DIR)/obj
-LIB_DIR := lib
-EXTERNAL_LIB_DIR := external
 
 # ========================================
 # Build Type and Installation Path
@@ -62,7 +63,7 @@ endif
 
 ifeq ($(CC),)
 	@echo "Warning: No C compiler found, using C++ compiler for C files."
-	CC := $(CXX)
+CC := $(CXX)
 endif
 
 COMPILER_TYPE := $(shell $(CXX) --version 2>/dev/null | head -n 1 | awk '{print tolower($$1)}')
@@ -77,19 +78,17 @@ ifeq ($(BUILD_TYPE),debug)
     OPTIMIZATION := -O0 -g
     DEBUG_FLAGS := -DDEBUG
     LDFLAGS_EXTRA :=
-    STRIP_FLAG :=
+    SIZE_FLAGS :=
 else ifeq ($(BUILD_TYPE),minsize)
     OPTIMIZATION := -Os -flto
     DEBUG_FLAGS := -DNDEBUG
     LDFLAGS_EXTRA := -flto -Wl,--gc-sections -Wl,--strip-all
     SIZE_FLAGS := -ffunction-sections -fdata-sections -fno-unwind-tables -fno-asynchronous-unwind-tables
-    STRIP_FLAG :=
 else # release
     OPTIMIZATION := -O3 -flto
     DEBUG_FLAGS := -DNDEBUG
     LDFLAGS_EXTRA := -flto -Wl,--gc-sections
     SIZE_FLAGS := -ffunction-sections -fdata-sections
-    STRIP_FLAG :=
 endif
 
 ifeq ($(PLATFORM),Darwin)
@@ -120,14 +119,12 @@ LDFLAGS  := $(OPTIMIZATION) $(LDFLAGS_EXTRA) $(LDFLAGS_PLATFORM)
 # ========================================
 HAS_PKG_CONFIG := $(shell command -v pkg-config 2>/dev/null)
 
-# Function to get CFLAGS and LDFLAGS for a library
-# Usage: $(call get_lib_flags,libname)
 define get_lib_flags
 $(if $(HAS_PKG_CONFIG),\
     $(if $(shell pkg-config --exists $(1) 2>/dev/null && echo 1), \
         $(info "  [$(1)] Detected with pkg-config.")\
         $(shell pkg-config --cflags $(1)) $(shell pkg-config --libs $(1)),\
-        $(info "  [$(1)] pkg-config not found, using -l$(1).")\
+        $(info "  [$(1)] pkg-config found, but no package $(1). Using -l$(1).")\
         -l$(1)\
     ),\
     $(info "  [$(1)] pkg-config not found on system, using -l$(1).")\
@@ -135,42 +132,70 @@ $(if $(HAS_PKG_CONFIG),\
 )
 endef
 
-# Process all required libraries
 ALL_LIB_FLAGS := $(foreach lib,$(LIBRARY_NEED),$(call get_lib_flags,$(lib)))
 LIB_CFLAGS := $(patsubst -I%,-I%,$(filter -I%,$(ALL_LIB_FLAGS)))
 LIB_LDFLAGS := $(filter-out -I%,$(ALL_LIB_FLAGS)) $(MANUAL_LIBS)
 
-# Handle dynamic environment variables, e.g., CPATH
-INCLUDES := -I$(INC_DIR) -I$(LIB_DIR) -I$(EXTERNAL_LIB_DIR) $(LIB_CFLAGS) -Ibuiltins
-# Example: Convert CPATH env var to -I flags, split by ':'
+# INCLUDES path updated for the new structure
+INCLUDES := -I$(INC_DIR) -I$(LIB_DIR) -I$(BUILTINS_DIR) $(LIB_CFLAGS)
 ifeq ($(CPATH),)
-    # CPATH is empty or not set
 else
     INCLUDES += $(patsubst %,-I%,$(subst :, ,$(CPATH)))
 endif
 
 # ========================================
-# File and Directory Management
+# Ignore File Management - FIXED
 # ========================================
-SRC_DIR := src
-INC_DIR := include
-BUILD_DIR := build
-OBJ_DIR := $(BUILD_DIR)/obj
-LIB_DIR := lib
-EXTERNAL_LIB_DIR := external
+# Mencari .makefile_ignore di root proyek dan semua subdirektori SRC_DIR
+IGNORE_FILE_PATH := $(wildcard .makefile_ignore $(SRC_DIR)/**/.makefile_ignore)
+
+# Read the file content if it exists. We only read the first one found.
+IGNORE_FILES_RAW := $(if $(IGNORE_FILE_PATH),$(shell cat $(firstword $(IGNORE_FILE_PATH)) 2>/dev/null),)
+
+# Clean up extra newlines/spaces and convert to a space-separated list
+IGNORE_FILES := $(strip $(IGNORE_FILES_RAW))
+
+# Convert ignore patterns to full paths relative to SRC_DIR
+IGNORE_PATTERNS := $(addprefix $(SRC_DIR)/,$(IGNORE_FILES))
+
+$(if $(IGNORE_FILES),\
+	$(info "--- Found ignore file(s): $(IGNORE_FILE_PATH). Ignoring: $(IGNORE_FILES)"),\
+	$(info "--- No ignore file found or is empty. All files will be compiled.")\
+)
+
+# ========================================
+# File and Directory Management (UPDATED) - FIXED
+# ========================================
 TARGET := $(PROJECT_NAME)
 ifeq ($(PLATFORM),Windows)
     TARGET := $(TARGET).exe
 endif
 
-SOURCES_CPP := $(wildcard $(SRC_DIR)/*.cc $(SRC_DIR)/**/*.cc)
-SOURCES_C   := $(wildcard $(LIB_DIR)/*.c $(LIB_DIR)/**/*.c) \
-               $(wildcard $(EXTERNAL_LIB_DIR)/*.c $(EXTERNAL_LIB_DIR)/**/*.c)
+# Find all C/C++ source files recursively under SRC_DIR
+SOURCES_C_ALL := $(shell find $(SRC_DIR) -name "*.c")
+SOURCES_CPP_ALL := $(shell find $(SRC_DIR) -name "*.cc" -o -name "*.cpp" -o -name "*.cxx")
 
-OBJECTS_CPP := $(patsubst $(SRC_DIR)/%.cc,$(OBJ_DIR)/%.o,$(SOURCES_CPP))
-OBJECTS_C   := $(patsubst $(LIB_DIR)/%.c,$(OBJ_DIR)/lib/%.o,$(filter $(LIB_DIR)/%,$(SOURCES_C))) \
-               $(patsubst $(EXTERNAL_LIB_DIR)/%.c,$(OBJ_DIR)/external/%.o,$(filter $(EXTERNAL_LIB_DIR)/%,$(SOURCES_C)))
-OBJECTS := $(OBJECTS_CPP) $(OBJECTS_C)
+# Filter out ignored files using wildcard pattern matching
+define filter_ignored
+$(foreach src,$(1),\
+    $(if $(filter $(addprefix %/,$(IGNORE_FILES)),$(src)),,\
+        $(if $(findstring $(src),$(IGNORE_PATTERNS)),,$(src))\
+    )\
+)
+endef
+
+# Apply the filter to both C and C++ sources
+SOURCES_C := $(call filter_ignored,$(SOURCES_C_ALL))
+SOURCES_CPP := $(call filter_ignored,$(SOURCES_CPP_ALL))
+
+# Create object files by replacing $(SRC_DIR)/ with $(OBJ_DIR)/ and changing extension to .o
+OBJECTS_C   := $(patsubst $(SRC_DIR)/%.c,$(OBJ_DIR)/%.o,$(SOURCES_C))
+OBJECTS_CPP_CC  := $(patsubst $(SRC_DIR)/%.cc,$(OBJ_DIR)/%.o,$(filter %.cc,$(SOURCES_CPP)))
+OBJECTS_CPP_CPP := $(patsubst $(SRC_DIR)/%.cpp,$(OBJ_DIR)/%.o,$(filter %.cpp,$(SOURCES_CPP)))
+OBJECTS_CPP_CXX := $(patsubst $(SRC_DIR)/%.cxx,$(OBJ_DIR)/%.o,$(filter %.cxx,$(SOURCES_CPP)))
+
+OBJECTS := $(OBJECTS_C) $(OBJECTS_CPP_CC) $(OBJECTS_CPP_CPP) $(OBJECTS_CPP_CXX)
+
 
 # ========================================
 # Main Build Targets
@@ -185,24 +210,31 @@ $(BUILD_DIR) $(OBJ_DIR):
 $(TARGET): $(OBJECTS)
 	@echo "Linking $(TARGET) for $(PLATFORM)-$(ARCH) with $(CXX)..."
 	$(CXX) $(CXXFLAGS) -o $(BUILD_DIR)/$(TARGET) $^ $(LDFLAGS) $(LIB_LDFLAGS)
-	@echo "Build complete: $(BUILD_DIR)/$(TARGET) ($(shell du -h $(BUILD_DIR)/$(TARGET) | awk '{print $$1}'))"
+	@echo "Build complete: $(BUILD_DIR)/$(TARGET) ($(shell du -h $(BUILD_DIR)/$(TARGET) 2>/dev/null | awk '{print $$1}'))"
 
 # ========================================
-# Compilation Rules
+# Compilation Rules (Unified)
 # ========================================
+# Generic C++ Rule for files in $(SRC_DIR) and subdirectories
 $(OBJ_DIR)/%.o: $(SRC_DIR)/%.cc
 	@mkdir -p $(dir $@)
 	@echo "Compiling C++ file: $<..."
 	$(CXX) $(CXXFLAGS) $(INCLUDES) -c $< -o $@
 
-$(OBJ_DIR)/lib/%.o: $(LIB_DIR)/%.c
+$(OBJ_DIR)/%.o: $(SRC_DIR)/%.cpp
 	@mkdir -p $(dir $@)
-	@echo "Compiling C library file: $<..."
-	$(CC) $(CFLAGS) $(INCLUDES) -c $< -o $@
+	@echo "Compiling C++ file: $<..."
+	$(CXX) $(CXXFLAGS) $(INCLUDES) -c $< -o $@
 
-$(OBJ_DIR)/external/%.o: $(EXTERNAL_LIB_DIR)/%.c
+$(OBJ_DIR)/%.o: $(SRC_DIR)/%.cxx
 	@mkdir -p $(dir $@)
-	@echo "Compiling C external library file: $<..."
+	@echo "Compiling C++ file: $<..."
+	$(CXX) $(CXXFLAGS) $(INCLUDES) -c $< -o $@
+
+# Generic C Rule for files in $(SRC_DIR) and subdirectories
+$(OBJ_DIR)/%.o: $(SRC_DIR)/%.c
+	@mkdir -p $(dir $@)
+	@echo "Compiling C file: $<..."
 	$(CC) $(CFLAGS) $(INCLUDES) -c $< -o $@
 
 # ========================================
@@ -256,14 +288,18 @@ info:
 	@echo "Detected LDFLAGS: $(LIB_LDFLAGS)"
 	@echo ""
 	@echo "=== Path and File Info ==="
-	@echo "Source files (.cc): $(wordlist 1,5,$(SOURCES_CPP))$(if $(filter-out $(wordlist 1,5,$(SOURCES_CPP)),$(SOURCES_CPP)), ...)"
-	@echo "Source files (.c):   $(wordlist 1,5,$(SOURCES_C))$(if $(filter-out $(wordlist 1,5,$(SOURCES_C)),$(SOURCES_C)), ...)"
+	@echo "Ignore file: $(IGNORE_FILE_PATH)"
+	@echo "Ignore patterns: $(IGNORE_FILES)"
+	@echo "Source files (.cc/.cpp/.cxx) count: $(words $(SOURCES_CPP))"
+	@echo "Source files (.cc/.cpp/.cxx): $(wordlist 1,5,$(SOURCES_CPP))$(if $(filter-out $(wordlist 1,5,$(SOURCES_CPP)),$(SOURCES_CPP)), ...)"
+	@echo "Source files (.c) count: $(words $(SOURCES_C))"
+	@echo "Source files (.c): $(wordlist 1,5,$(SOURCES_C))$(if $(filter-out $(wordlist 1,5,$(SOURCES_C)),$(SOURCES_C)), ...)"
 	@echo "Install Prefix: $(PREFIX)"
 
 format:
 	@command -v clang-format >/dev/null 2>&1 && \
 		echo "Formatting code..." && \
-		find $(SRC_DIR) $(INC_DIR) $(LIB_DIR) $(EXTERNAL_LIB_DIR) -name "*.cc" -o -name "*.h" -o -name "*.c" | \
+		find $(SRC_DIR) $(INC_DIR) $(LIB_DIR) -name "*.cc" -o -name "*.h" -o -name "*.c" -o -name "*.cpp" -o -name "*.cxx" -o -name "*.hpp" -o -name "*.hxx" | \
 		xargs clang-format -i || \
 		echo "clang-format not found, skipping formatting."
 

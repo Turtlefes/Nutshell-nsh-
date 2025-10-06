@@ -271,18 +271,17 @@ std::string get_multiline_input(const std::string& initial_prompt) {
         char* line_read = readline(wrapped_prompt.c_str());
         safe_set_raw_mode();
 
-        if (EOF_IN_interrupt && EOF_IN) {
+        if (received_sigint && EOF_IN) {
             EOF_IN = false;
             current_prompt = initial_prompt;
-            EOF_IN_interrupt = 0;
+            received_sigint = 0;
             full_input.clear();
             break;
         }
 
         if (line_read == nullptr) {
-            if (full_input.empty()) {
+            if (full_input.empty() && isatty(STDIN_FILENO)) {
                 std::cout << "exit" << std::endl;
-                save_history();
                 exit_shell(last_exit_code);
             } else {
                 if (EOF_IN) {
@@ -308,7 +307,7 @@ std::string get_multiline_input(const std::string& initial_prompt) {
                 // Tampilkan hasil expansion untuk konfirmasi user
                 dont_execute_first = 1;
                 rl_replace_line(expanded_input.c_str(), 1);
-                rl_redisplay();
+                input_redisplay();
                 dont_execute_first = 0;
                 
                 // PERBAIKAN: Jangan langsung assign, biarkan user edit dulu
@@ -405,7 +404,7 @@ std::string get_multiline_input(const std::string& initial_prompt) {
 
         rl_reset_line_state();
 
-    } while (EOF_IN && !EOF_IN_interrupt);
+    } while (EOF_IN && !received_sigint);
 
     // PERBAIKAN: Gunakan expanded input di akhir jika ada
     if (show_expanded_history && !expanded_input.empty()) {

@@ -502,7 +502,7 @@ std::vector<ParsedCommand> Parser::parse(const std::string &input)
     std::vector<ParsedCommand> command_list;
     if (input.empty() || input.find_first_not_of(" \t\n") == std::string::npos)
         return command_list;
-      
+    
     std::vector<Token> tokens = tokenize(input);
     if (tokens.empty())
         return command_list;
@@ -519,7 +519,34 @@ std::vector<ParsedCommand> Parser::parse(const std::string &input)
     for (size_t i = 0; i < tokens.size(); ++i)
     {
         const Token &token = tokens[i];
+        
+        // Pola: WORD(angka) diikuti oleh operator GREAT, LESS, etc.
+        if (token.type == TokenType::WORD && i + 1 < tokens.size() && is_string_numeric(token.text)) {
+            const Token &next_token = tokens[i+1];
+            if (next_token.type == TokenType::GREAT || next_token.type == TokenType::DGREAT || next_token.type == TokenType::LESS) {
+                 if (i + 2 < tokens.size()) {
+                    Redirection redir;
+                    redir.source_fd = std::stoi(token.text);
+                    redir.target_file = tokens[i+2].text;
 
+                    if (next_token.type == TokenType::GREAT) {
+                        redir.type = RedirectionType::REDIR_OUT;
+                    } else if (next_token.type == TokenType::DGREAT) {
+                        redir.type = RedirectionType::REDIR_OUT_APPEND;
+                    } else if (next_token.type == TokenType::LESS) {
+                        redir.type = RedirectionType::REDIR_IN;
+                    }
+                    current_simple_cmd.redirections.push_back(redir);
+                    i += 2; // Lewati 3 token: '1', '>', 'file'
+                    continue;
+                 } else {
+                    std::cerr << "nsh: syntax error: expected filename after redirect" << std::endl;
+                    return {};
+                 }
+            }
+        }
+
+        /*
         if (expect_redirect_file)
         {
             if (token.type == TokenType::WORD || token.type == TokenType::STRING)
@@ -559,6 +586,7 @@ std::vector<ParsedCommand> Parser::parse(const std::string &input)
             }
             continue;
         }
+        */
 
         switch (token.type)
         {
@@ -570,7 +598,12 @@ std::vector<ParsedCommand> Parser::parse(const std::string &input)
                     current_simple_cmd.env_vars[var_name] = value;
                     current_simple_cmd.exported_vars.insert(var_name);
                     
+                    /*
                     environ_map[var_name] = {value, false, false};
+                    */
+                    
+                    // more recommended, because we don't know the original exported or default state
+                    set_env_var(var_name, value, 0);
                 }
                 else
                 {
@@ -624,15 +657,79 @@ std::vector<ParsedCommand> Parser::parse(const std::string &input)
             case TokenType::DGREAT:
             case TokenType::LESSLESS:
             case TokenType::LESSLESSLESS:
-                expect_redirect_file = true;
-                last_redirect_type = token.type;
+            {
+                if (i + 1 >= tokens.size()) {
+                    std::cerr << "nsh: syntax error: expected target for redirection `" << token.text << "'" << std::endl;
+                    return {};
+                }
+                const Token& target_token = tokens[i+1];
+
+                Redirection redir;
+
+                // Handle duplikasi FD: >&, <&
+                if (target_token.text.rfind("&", 0) == 0) { // Cek jika target dimulai dengan '&'
+                    std::string target = target_token.text.substr(1);
+                    if (target == "-") {
+                        redir.type = RedirectionType::CLOSE_FD;
+                    } else if (is_string_numeric(target)) {
+                        redir.target_fd = std::stoi(target);
+                        redir.type = (token.type == TokenType::LESS) ? RedirectionType::DUPLICATE_IN : RedirectionType::DUPLICATE_OUT;
+                    } else {
+                        std::cerr << "nsh: " << target_token.text << ": ambiguous redirect" << std::endl;
+                        return {};
+                    }
+                } else { // Redirection file biasa
+                    redir.target_file = target_token.text;
+                    if (token.type == TokenType::LESS) {
+                        redir.type = RedirectionType::REDIR_IN;
+                        redir.source_fd = 0;
+                    } else if (token.type == TokenType::GREAT) {
+                        redir.type = RedirectionType::REDIR_OUT;
+                        redir.source_fd = 1;
+                    } else if (token.type == TokenType::DGREAT) {
+                        redir.type = RedirectionType::REDIR_OUT_APPEND;
+                        redir.source_fd = 1;
+                    } else if (token.type == TokenType::LESSLESS) {
+                        redir.type = RedirectionType::HERE_DOC;
+                        redir.delimiter = target_token.text;
+                        redir.source_fd = 0;
+                    } else if (token.type == TokenType::LESSLESSLESS) {
+                        redir.type = RedirectionType::HERE_STRING;
+                        redir.content = target_token.text;
+                        redir.source_fd = 0;
+                    }
+                }
+                
+                // Jika source_fd belum diatur (untuk <, >, >>)
+                if (redir.source_fd == -1) {
+                    redir.source_fd = (token.type == TokenType::LESS || token.type == TokenType::LESSLESS || token.type == TokenType::LESSLESSLESS) ? 0 : 1;
+                }
+
+                current_simple_cmd.redirections.push_back(redir);
+                i++; // Lewati token target
                 break;
+            }
 
             case TokenType::AMPERSAND:
-                if (i == tokens.size() - 1)
+                // Handle &> dan &>>
+                if (i + 1 < tokens.size() && (tokens[i+1].type == TokenType::GREAT || tokens[i+1].type == TokenType::DGREAT)) {
+                    if (i + 2 < tokens.size()) {
+                        Redirection redir;
+                        redir.target_file = tokens[i+2].text;
+                        redir.type = (tokens[i+1].type == TokenType::GREAT) ? RedirectionType::REDIR_OUT_ERR : RedirectionType::REDIR_OUT_ERR_APPEND;
+                        current_simple_cmd.redirections.push_back(redir);
+                        i += 2; // Lewati '&', '>', dan 'file'
+                    } else {
+                        std::cerr << "nsh: syntax error: expected filename after redirect" << std::endl;
+                        return {};
+                    }
+                }
+                // Handle job background
+                else if (i == tokens.size() - 1) {
                     command_list.back().background = true;
-                else
+                } else {
                     current_simple_cmd.tokens.push_back(token.text);
+                }
                 break;
 
             default:
@@ -915,3 +1012,5 @@ bool Parser::needs_EOF_IN(const std::string& line) const {
             return false;
     }
 }
+
+

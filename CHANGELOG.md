@@ -1,4 +1,4 @@
-# Nutshell-nsh
+# Nutshell-nsh 2025
 
 **Date:** 2025-09-18 -> 2025-09-19 **Version:** 0.3.8.46 -> 0.3.8.54
 
@@ -52,3 +52,27 @@
 - EOF interrupt
 - Variable Assignment in one line can't be initialized
 - Cannot interrupt a file execution V2
+
+**Date:** 2025-09-18 -> 2025-09-19 **Version:** 0.3.8.64 -> 0.3.8.73
+
+### [+] Added
+#### 0.3.8.70
+- More redirection
+- Cross session jobs
+- Puzzle math like ```echo $((?+12=28)) # output 16``` and support for complex operation
+- Easter egg #1 | session easter egg/memes
+#### 0.3.8.73
+- New options "-f, --file" in nsh
+- Shell description
+- Easter egg #2 | Nuts crack animation easter egg/memes
+
+### [*] Fixed
+#### 0.3.8.70
+- Jobs structure
+- Jobs status structure
+- Incorrect jobs status bugs
+#### 0.3.8.73
+- Default variable get overwritted when assigning a variable
+
+### [-] Removed
+- Bookmark interactive question to clear

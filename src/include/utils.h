@@ -14,5 +14,8 @@ void clear_history_list();
 std::string rtrim(const std::string& s);
 std::string trim(const std::string& s);
 unsigned int xrand(unsigned int seed, int min, int max);
+void input_redisplay();
+// In utils.h
+bool is_string_numeric(const std::string& s);
 
 #endif // UTILS_H

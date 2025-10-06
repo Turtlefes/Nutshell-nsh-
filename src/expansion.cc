@@ -19,6 +19,10 @@
 #include <functional>
 #include <map>
 #include <array> // ADD: For safer buffer handling
+#include <cmath>      // Diperlukan untuk std::abs, std::fmod, std::pow, std::trunc
+#include <limits>     // Diperlukan untuk std::numeric_limits
+#include <stdexcept>  // Diperlukan untuk std::runtime_error
+#include <iomanip>    // Diperlukan untuk std::setprecision, std::fixed
 
 // ... (fungsi cleanup_pattern, match_wildcard, expand_wildcard, expand_tilde tetap sama) ...
 std::string cleanup_pattern(const std::string &pattern)
@@ -221,7 +225,9 @@ bool is_right_associative(const std::string& op) {
     return op == "**" || op == "u+" || op == "u-" || op == "!" || op == "~";
 }
 
-// FIX: Tokenizer now recognizes hex literals (e.g., 0xff)
+double evaluate_postfix(const std::vector<std::string>& postfix); // forward declaration for tokenize_arithmetic
+
+// FIX: Tokenizer now recognizes hex literals (e.g., 0xff) AND decimal numbers
 std::vector<std::string> tokenize_arithmetic(const std::string& expr) {
     std::vector<std::string> tokens;
     for (size_t i = 0; i < expr.length(); ++i) {
@@ -229,7 +235,12 @@ std::vector<std::string> tokenize_arithmetic(const std::string& expr) {
 
         if (isdigit(expr[i])) {
             std::string num;
+            bool is_hex = false;
+            bool is_decimal = false;
+            
+            // Check for hex prefix
             if (expr[i] == '0' && i + 1 < expr.length() && (expr[i+1] == 'x' || expr[i+1] == 'X')) {
+                is_hex = true;
                 num += "0x";
                 i += 2;
                 while (i < expr.length() && isxdigit(expr[i])) {
@@ -237,15 +248,21 @@ std::vector<std::string> tokenize_arithmetic(const std::string& expr) {
                 }
                 i--;
             } else {
-                while (i < expr.length() && isdigit(expr[i])) {
+                // Handle decimal numbers (integer and floating point)
+                while (i < expr.length() && (isdigit(expr[i]) || expr[i] == '.')) {
+                    if (expr[i] == '.') {
+                        if (is_decimal) break; // Second decimal point, stop
+                        is_decimal = true;
+                    }
                     num += expr[i++];
                 }
                 i--;
             }
             tokens.push_back(num);
-        } else if (isalpha(expr[i]) || expr[i] == '_') {
+        } else if (isalpha(expr[i]) || expr[i] == '_' || expr[i] == '?') {
+            // ADD: Support for '?' in puzzles like ?+8=21
             std::string var;
-            while (i < expr.length() && (isalnum(expr[i]) || expr[i] == '_')) {
+            while (i < expr.length() && (isalnum(expr[i]) || expr[i] == '_' || expr[i] == '?')) {
                 var += expr[i++];
             }
             i--;
@@ -262,6 +279,14 @@ std::vector<std::string> tokenize_arithmetic(const std::string& expr) {
             tokens.push_back(op);
         } else if (expr[i] == '(' || expr[i] == ')') {
             tokens.push_back(std::string(1, expr[i]));
+        } else if (expr[i] == '=') {
+            // Handle = operator for puzzles
+            std::string op(1, expr[i]);
+            if (i + 1 < expr.length() && expr[i+1] == '=') {
+                op = "==";
+                i++;
+            }
+            tokens.push_back(op);
         }
     }
     return tokens;
@@ -312,83 +337,220 @@ std::vector<std::string> infix_to_postfix(const std::vector<std::string>& tokens
     return output;
 }
 
-// FIX: Now uses `std::stol` with base 0 for auto-detection of hex/octal
-// ADD: Handles unary operator tokens `u+` and `u-`
-long evaluate_postfix(const std::vector<std::string>& postfix) {
-    std::stack<long> stack;
-    
+// --- GANTI FUNGSI evaluate_postfix ---
+// FIX: Menggunakan 'double' untuk mendukung angka desimal.
+// ADD: Menambahkan error handling untuk operator integer-only dalam konteks desimal.
+double evaluate_postfix(const std::vector<std::string>& postfix) {
+    std::stack<double> stack;
+    const double epsilon = 1e-9; // Toleransi untuk perbandingan floating-point
+
+    auto is_whole_number = [&](double n) {
+        return std::abs(n - std::trunc(n)) < epsilon;
+    };
+
     for (const auto& token : postfix) {
         if (get_precedence(token) > 0) {
             // Handle unary operators
             if (token == "u+" || token == "u-" || token == "!" || token == "~") {
                  if (stack.empty()) throw std::runtime_error("Invalid expression: not enough operands for unary op");
-                 long a = stack.top(); stack.pop();
+                 double a = stack.top(); stack.pop();
                  if (token == "u+") stack.push(a);
                  else if (token == "u-") stack.push(-a);
-                 else if (token == "!") stack.push(!a);
-                 else if (token == "~") stack.push(~a);
+                 else if (token == "!") stack.push(!a); // Logical NOT
+                 else if (token == "~") { // Bitwise NOT
+                    if (!is_whole_number(a)) throw std::runtime_error("Bitwise operator '~' requires an integer operand");
+                    stack.push(~static_cast<long>(a));
+                 }
                  continue;
             }
 
             if (stack.size() < 2) throw std::runtime_error("Invalid expression: not enough operands");
-            long b = stack.top(); stack.pop();
-            long a = stack.top(); stack.pop();
+            double b = stack.top(); stack.pop();
+            double a = stack.top(); stack.pop();
             
             if (token == "+") stack.push(a + b);
             else if (token == "-") stack.push(a - b);
             else if (token == "*") stack.push(a * b);
-            else if (token == "/") { if (b == 0) throw std::runtime_error("Division by zero"); stack.push(a / b); }
-            // NOTE: C++ '%' behavior for negative numbers matches Bash.
-            // The sign of `a % b` is the sign of `a`. This is correct.
-            else if (token == "%") { if (b == 0) throw std::runtime_error("Modulo by zero"); stack.push(a % b); }
-            else if (token == "**") {
-                if (b < 0) { // Bash-like integer exponentiation
-                    stack.push(a == 1 ? 1 : (a == -1 ? (b % 2 == 0 ? 1 : -1) : 0));
-                } else {
-                    long res = 1; for (long i = 0; i < b; ++i) res *= a; stack.push(res);
-                }
+            else if (token == "/") { 
+                if (std::abs(b) < epsilon) throw std::runtime_error("Division by zero"); 
+                stack.push(a / b); 
             }
-            else if (token == "^") stack.push(a ^ b);
-            else if (token == "&") stack.push(a & b);
-            else if (token == "|") stack.push(a | b);
-            else if (token == "<<") stack.push(a << b);
-            else if (token == ">>") stack.push(a >> b);
+            else if (token == "%") { 
+                if (std::abs(b) < epsilon) throw std::runtime_error("Modulo by zero");
+                if (!is_whole_number(a) || !is_whole_number(b)) throw std::runtime_error("Modulo operator '%' requires integer operands");
+                stack.push(static_cast<long>(a) % static_cast<long>(b)); 
+            }
+            else if (token == "**") {
+                stack.push(std::pow(a, b));
+            }
+            // Bitwise operators, memerlukan integer
+            else if (token == "^" || token == "&" || token == "|" || token == "<<" || token == ">>") {
+                if (!is_whole_number(a) || !is_whole_number(b)) throw std::runtime_error("Bitwise operators require integer operands");
+                long la = static_cast<long>(a);
+                long lb = static_cast<long>(b);
+                if (token == "^") stack.push(la ^ lb);
+                else if (token == "&") stack.push(la & lb);
+                else if (token == "|") stack.push(la | lb);
+                else if (token == "<<") stack.push(la << lb);
+                else if (token == ">>") stack.push(la >> lb);
+            }
+            // Logical/comparison operators
             else if (token == "<") stack.push(a < b);
             else if (token == "<=") stack.push(a <= b);
             else if (token == ">") stack.push(a > b);
             else if (token == ">=") stack.push(a >= b);
-            else if (token == "==") stack.push(a == b);
-            else if (token == "!=") stack.push(a != b);
+            else if (token == "==") stack.push(std::abs(a - b) < epsilon);
+            else if (token == "!=") stack.push(std::abs(a - b) >= epsilon);
             else if (token == "&&") stack.push(a && b);
             else if (token == "||") stack.push(a || b);
 
         } else { // Operand
+            if (token == "?") {
+                // Dalam konteks evaluasi normal, '?' tidak memiliki nilai. 
+                // Ini seharusnya hanya ditangani oleh solve_puzzle.
+                throw std::runtime_error("Puzzle variable '?' encountered during direct evaluation");
+            }
+            
             try {
-                // Use std::stol with base 0 to auto-detect hex (0x) and octal (0)
-                stack.push(std::stol(token, nullptr, 0));
+                stack.push(std::stod(token));
             } catch (...) {
                 const char* val = get_env_var(token);
                 try {
-                    stack.push(val ? std::stol(val, nullptr, 0) : 0);
+                    stack.push(val ? std::stod(val) : 0.0);
                 } catch (...) {
-                    stack.push(0); // Variable is not a valid number
+                    stack.push(0.0); // Variabel tidak valid atau bukan angka
                 }
             }
         }
     }
     
-    if (stack.size() != 1) throw std::runtime_error("Invalid expression");
+    if (stack.size() != 1) throw std::runtime_error("Invalid expression: stack should contain a single value at the end");
     return stack.top();
 }
 
 
+// --- GANTI FUNGSI solve_puzzle ---
+// UPGRADE: Menggunakan metode aljabar linier (two-point form) untuk solusi instan.
+// SUPPORT: Mendukung multiple '?' sebagai variabel yang sama.
+// SUPPORT: Mendukung puzzle desimal.
+// ADD: Error handling untuk kontradiksi dan identitas.
+double solve_puzzle(const std::vector<std::string>& tokens) {
+    size_t equal_pos = std::string::npos;
+    for (size_t i = 0; i < tokens.size(); ++i) {
+        if (tokens[i] == "=" || tokens[i] == "==") {
+            equal_pos = i;
+            break;
+        }
+    }
+
+    if (equal_pos == std::string::npos) {
+        throw std::runtime_error("Invalid puzzle format: must contain '='");
+    }
+
+    // Fungsi helper untuk mengevaluasi ekspresi dengan mengganti '?' dengan nilai tertentu
+    auto evaluate_with_value = [&](const std::vector<std::string>& expr_tokens, double value) -> double {
+        std::vector<std::string> substituted_tokens;
+        bool has_unsupported_op = false;
+        for (const auto& token : expr_tokens) {
+            if (token == "?") {
+                substituted_tokens.push_back(std::to_string(value));
+            } else {
+                if (token == "%" || token == "^" || token == "&" || token == "|" || token == "<<" || token == ">>" || token == "~") {
+                    has_unsupported_op = true;
+                }
+                substituted_tokens.push_back(token);
+            }
+        }
+        if (has_unsupported_op) {
+            throw std::runtime_error("Puzzles with bitwise or modulo operators are not supported");
+        }
+        auto postfix = infix_to_postfix(substituted_tokens);
+        return evaluate_postfix(postfix);
+    };
+
+    std::vector<std::string> left_tokens(tokens.begin(), tokens.begin() + equal_pos);
+    std::vector<std::string> right_tokens(tokens.begin() + equal_pos + 1, tokens.end());
+
+    // Hitung persamaan f(x) = L(x) - R(x), di mana kita mencari x agar f(x) = 0
+    // Asumsikan persamaan ini linear: f(x) = ax + b
+    // Kita bisa menemukan 'a' dan 'b' dengan mengevaluasi pada dua titik, misal x=0 dan x=1.
+    // f(0) = a*0 + b = b
+    // f(1) = a*1 + b = a + b
+    // Maka, a = f(1) - f(0) dan b = f(0)
+    
+    double f0, f1;
+    try {
+        double left0 = evaluate_with_value(left_tokens, 0.0);
+        double right0 = evaluate_with_value(right_tokens, 0.0);
+        f0 = left0 - right0; // Ini adalah 'b'
+
+        double left1 = evaluate_with_value(left_tokens, 1.0);
+        double right1 = evaluate_with_value(right_tokens, 1.0);
+        f1 = left1 - right1; // Ini adalah 'a + b'
+    } catch (const std::exception& e) {
+        throw std::runtime_error(std::string("Failed to evaluate puzzle structure: ") + e.what());
+    }
+    
+    double b = f0;
+    double a = f1 - f0;
+    const double epsilon = 1e-9;
+
+    // Sekarang selesaikan ax + b = 0
+    if (std::abs(a) < epsilon) { // Jika 'a' mendekati nol
+        if (std::abs(b) < epsilon) { // Jika 'b' juga nol (0 = 0)
+            throw std::runtime_error("Infinite solutions: equation is an identity");
+        } else { // Jika 'b' bukan nol (misal: 5 = 0)
+            throw std::runtime_error("No solution: equation is a contradiction");
+        }
+    }
+    
+    // Solusinya adalah x = -b / a
+    return -b / a;
+}
+
+
+// --- GANTI FUNGSI evaluate_arithmetic ---
+// FIX: Mengubah tipe hasil menjadi double dan memformat output string
 std::string evaluate_arithmetic(const std::string& expr) {
     if (expr.empty()) return "0";
     try {
         auto tokens = tokenize_arithmetic(expr);
-        auto postfix = infix_to_postfix(tokens);
-        long result = evaluate_postfix(postfix);
-        return std::to_string(result);
+        
+        bool has_question = false;
+        bool has_equal = false;
+        
+        for (const auto& token : tokens) {
+            if (token == "?") has_question = true;
+            if (token == "=" || token == "==") has_equal = true;
+        }
+        
+        double result;
+        
+        if (has_question && has_equal) {
+            result = solve_puzzle(tokens);
+        } else if (has_question) {
+            throw std::runtime_error("Puzzle must contain both '?' and '='");
+        } else {
+            auto postfix = infix_to_postfix(tokens);
+            result = evaluate_postfix(postfix);
+        }
+        
+        // Format output: hapus .0 jika merupakan bilangan bulat
+        std::ostringstream oss;
+        if (std::abs(result - std::trunc(result)) < 1e-9) {
+            oss << static_cast<long>(result);
+        } else {
+            oss << std::fixed << std::setprecision(10) << result;
+            // Hapus trailing zeros
+            std::string str = oss.str();
+            str.erase(str.find_last_not_of('0') + 1, std::string::npos);
+            if(str.back() == '.') {
+                str.pop_back();
+            }
+            return str;
+        }
+        return oss.str();
+
     } catch (const std::exception& e) {
         std::cerr << "nsh: arithmetic error: " << expr << ": " << e.what() << std::endl;
         return "0"; // Bash returns 0 on error within $((...))
@@ -396,7 +558,6 @@ std::string evaluate_arithmetic(const std::string& expr) {
 }
 
 
-// ... (sisa file: expand_argument, apply_expansions_and_wildcards, etc. tetap sama) ...
 std::string expand_argument(const std::string &token)
 {
     std::string result;

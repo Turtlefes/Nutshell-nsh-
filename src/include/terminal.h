@@ -3,6 +3,8 @@
 
 #include <sys/types.h>
 
+extern struct termios shell_tmodes;
+
 void setup_terminal();
 void restore_terminal_mode();
 void set_raw_mode();

@@ -21,10 +21,60 @@
 
 namespace fs = std::filesystem;
 
+#include <sys/time.h>
+#include <sys/resource.h>
+
+
+
+
+// Fungsi pembantu untuk menulis status job ke file kontrol
+void write_job_controle_file(const Job& job) {
+    // Abaikan job yang sudah selesai dilaporkan (DONE, EXITED, SIGNALED)
+    if (job.status == JobStatus::DONE || job.status == JobStatus::EXITED || job.status == JobStatus::SIGNALED) {
+        // Hapus file kontrol jika job sudah selesai.
+        fs::path job_dir = ns_CONFIG_DIR / "jobs";
+        fs::path file_path = job_dir / ("jobs_" + std::to_string(job.pgid) + ".controle");
+        if (fs::exists(file_path)) {
+            fs::remove(file_path);
+        }
+        return;
+    }
+    
+    fs::path job_dir = ns_CONFIG_DIR / "jobs";
+    fs::create_directories(job_dir); // Pastikan direktori ada
+    fs::path file_path = job_dir / ("jobs_" + std::to_string(job.pgid) + ".controle");
+    
+    std::ofstream ofs(file_path);
+    if (!ofs.is_open()) {
+        std::cerr << "nsh: Error writing job controle file for PGID " << job.pgid << std::endl;
+        return;
+    }
+
+    // Format Key=Value untuk mempermudah pembacaan
+    ofs << "PGID=" << job.pgid << "\n";
+    ofs << "SHELL_PID=" << getpid() << "\n"; // Gunakan PID shell saat ini
+    ofs << "COMMAND=" << job.command << "\n";
+    ofs << "STATUS=" << static_cast<int>(job.status) << "\n";
+    ofs << "TERM_STATUS=" << job.term_status << "\n";
+    
+    // Resource Usage (CPU time)
+    ofs << "RUTIME_SEC=" << job.usage.ru_utime.tv_sec << "\n";
+    ofs << "RUTIME_USEC=" << job.usage.ru_utime.tv_usec << "\n";
+    ofs << "RSTIME_SEC=" << job.usage.ru_stime.tv_sec << "\n";
+    ofs << "RSTIME_USEC=" << job.usage.ru_stime.tv_usec << "\n";
+    
+    // Start Time (untuk perhitungan CPU %)
+    ofs << "START_TIME_SEC=" << job.start_tv.tv_sec << "\n";
+    ofs << "START_TIME_USEC=" << job.start_tv.tv_usec << "\n";
+    
+    ofs.close();
+}
+
+
 // This would normally be in a header file (like globals.h)
 // For this demonstration, we define it her.
 
-// The job_status_to_string from jobs_impl.cc would be in a shared utility file.
+// The job_status_to_string from jobs.def.cc would be in a shared utility file.
 // We redeclare a simple version here for check_child_status.
 std::string job_status_to_string_simple(JobStatus status) { return status == JobStatus::RUNNING ? "Running" : "Stopped"; }
 
@@ -49,33 +99,41 @@ void check_child_status()
         {
             if (it->second.pgid == pid || it->second.pgid == getpgid(pid))
             {
+                it->second.usage = usage; // Update usage stats
+
                 if (WIFEXITED(status) || WIFSIGNALED(status))
                 {
                     // Job has finished
-                    it->second.usage = usage;
                     if (WIFEXITED(status)) {
                         int exit_code = WEXITSTATUS(status);
-                        it->second.status = (exit_code == 0) ? JobStatus::DONE : JobStatus::EXITED;
+                        if (exit_code == 0) {
+                            it->second.status = JobStatus::DONE;
+                        } else {
+                            it->second.status = JobStatus::EXITED;
+                        }
                         it->second.term_status = exit_code;
                     } else { // WIFSIGNALED
                         it->second.status = JobStatus::SIGNALED;
                         it->second.term_status = WTERMSIG(status);
                     }
+                    write_job_controle_file(it->second);
+                    finished_jobs.push_back(*it);
+                    it = jobs.erase(it);
                 }
-
                 else if (WIFSTOPPED(status))
                 {
-                    // Job has stopped
+                    // Job has stopped - PERBAIKAN: Pastikan status STOPPED tercatat
                     if (isatty(STDIN_FILENO))
                         std::cout << "\n[" << it->first << "]+ Stopped\t" << it->second.command << std::endl;
-                    it->second.status = JobStatus::STOPPED;
+                    it->second.status = JobStatus::STOPPED;  // PASTIKAN INI
+                    it->second.term_status = WSTOPSIG(status);
                     
-                    // PERBAIKAN: Update job tracking ketika job di-stop
                     if (it->first != current_job_id) {
                         previous_job_id = current_job_id;
                         current_job_id = it->first;
                     }
                     
+                    write_job_controle_file(it->second);
                     ++it;
                 }
                 else if (WIFCONTINUED(status))
@@ -83,12 +141,12 @@ void check_child_status()
                     // Job has continued
                     it->second.status = JobStatus::RUNNING;
                     
-                    // PERBAIKAN: Update job tracking ketika job di-continue
                     if (it->first != current_job_id) {
                         previous_job_id = current_job_id;
                         current_job_id = it->first;
                     }
                     
+                    write_job_controle_file(it->second);
                     ++it;
                 }
                 else
@@ -102,6 +160,128 @@ void check_child_status()
             }
         }
     }
+}
+
+/**
+ * @brief Validates and cleans up stale jobs from both memory and control files.
+ *
+ * This function actively queries the OS to determine the real status of each job's
+ * process group. It updates the job status in memory, moves completed jobs to the
+ * finished queue, and removes stale control files for non-existent processes.
+ */
+void validate_and_cleanup_jobs() {
+    // --- Phase 1: Validate and update in-memory jobs (the 'jobs' map) ---
+    for (auto it = jobs.begin(); it != jobs.end(); ) {
+        Job& job = it->second;
+        pid_t pgid = job.pgid;
+
+        // The job is alive, let's update its status using a non-blocking waitpid.
+        int status;
+        pid_t result = waitpid(-pgid, &status, WNOHANG | WUNTRACED | WCONTINUED);
+
+        if (result > 0) { // A status change was detected
+            if (WIFEXITED(status)) {
+                job.status = (WEXITSTATUS(status) == 0) ? JobStatus::DONE : JobStatus::EXITED;
+                job.term_status = WEXITSTATUS(status);
+            } else if (WIFSIGNALED(status)) {
+                job.status = JobStatus::SIGNALED;
+                job.term_status = WTERMSIG(status);
+            } else if (WIFSTOPPED(status)) {
+                job.status = JobStatus::STOPPED;
+                job.term_status = WSTOPSIG(status);
+            } else if (WIFCONTINUED(status)) {
+                job.status = JobStatus::RUNNING;
+            }
+        } else if (result < 0 && errno == ECHILD) {
+            // waitpid failed because the process group doesn't exist anymore.
+            // Mark the job as DONE to ensure its control file is removed.
+            job.status = JobStatus::DONE;
+        }
+        
+        // After potential status update, check if the job is finished.
+        if (job.status == JobStatus::DONE || job.status == JobStatus::EXITED || job.status == JobStatus::SIGNALED) {
+            // Move to finished_jobs to be reported, then erase from active jobs.
+            finished_jobs.push_back(*it);
+            write_job_controle_file(job); // This will delete the control file for a finished job.
+            it = jobs.erase(it);
+        } else {
+            // The job is still active (Running or Stopped), so update its control file.
+            write_job_controle_file(job);
+            ++it;
+        }
+    }
+    
+    // --- Phase 2: Clean up orphaned control files ---
+    // This finds control files for jobs that are not in memory, possibly left from a crash.
+    fs::path job_dir = ns_CONFIG_DIR / "jobs";
+    if (fs::exists(job_dir) && fs::is_directory(job_dir)) {
+        for (const auto& entry : fs::directory_iterator(job_dir)) {
+            if (entry.is_regular_file() && entry.path().extension() == ".controle") {
+                std::string filename = entry.path().filename().string();
+                if (filename.rfind("jobs_", 0) == 0) { // filename starts with "jobs_"
+                    try {
+                        std::string pgid_str = filename.substr(5, filename.find(".controle") - 5);
+                        pid_t pgid = std::stoi(pgid_str);
+                        
+                        // Check if the process group for this file still exists.
+                        if (kill(-pgid, 0) == -1 && errno == ESRCH) {
+                            // PGID does not exist, so the control file is an orphan. Remove it.
+                            fs::remove(entry.path());
+                        }
+                    } catch (const std::exception&) {
+                        // Malformed filename, remove it to be safe.
+                        fs::remove(entry.path());
+                    }
+                }
+            }
+        }
+    }
+}
+
+
+/**
+ * @brief Adds a job to the jobs list regardless of its type
+ */
+int add_job_to_list(pid_t pgid, const std::string& command, JobStatus status, bool update_current) {
+    // First, validate and cleanup any stale jobs
+    validate_and_cleanup_jobs();
+    
+    // Check if job already exists
+    for (const auto& [id, job] : jobs) {
+        if (job.pgid == pgid) {
+            // Update existing job
+            jobs[id].command = command;
+            jobs[id].status = status;
+            gettimeofday(&jobs[id].start_tv, nullptr);
+            write_job_controle_file(jobs[id]);
+            return id;
+        }
+    }
+    
+    // Create new job
+    if (update_current) {
+        previous_job_id = current_job_id;
+        current_job_id = next_job_id;
+    }
+    
+    Job& new_job = jobs[next_job_id];
+    new_job.pgid = pgid;
+    new_job.command = command;
+    new_job.status = status;
+    new_job.term_status = 0;
+    gettimeofday(&new_job.start_tv, nullptr);
+    memset(&new_job.usage, 0, sizeof(new_job.usage));
+    
+    int job_id = next_job_id;
+    next_job_id++;
+    
+    if (update_current) {
+        last_launched_job_id = current_job_id;
+    }
+    
+    write_job_controle_file(new_job);
+    
+    return job_id;
 }
 
 void handle_here_document(const std::string &delimiter)
@@ -135,54 +315,114 @@ void handle_here_document(const std::string &delimiter)
 
 void handle_redirection(const SimpleCommand &cmd)
 {
-    if (!cmd.here_string_content.empty())
-    {
-        int pipe_fd[2];
-        pipe(pipe_fd);
-        write(pipe_fd[1], cmd.here_string_content.c_str(), cmd.here_string_content.length());
-        write(pipe_fd[1], "\n", 1);
-        close(pipe_fd[1]);
-        dup2(pipe_fd[0], STDIN_FILENO);
-        close(pipe_fd[0]);
-    }
-    else if (!cmd.here_doc_delimiter.empty())
-    {
-        handle_here_document(cmd.here_doc_delimiter);
-        int fd_in = open("heredoc.tmp", O_RDONLY);
-        if (fd_in == -1)
-        {
-            perror("nsh: heredoc");
-            exit(1);
-        }
-        dup2(fd_in, STDIN_FILENO);
-        close(fd_in);
-        unlink("heredoc.tmp");
-    }
-    else if (!cmd.stdin_file.empty())
-    {
-        int fd_in = open(expand_tilde(cmd.stdin_file).c_str(), O_RDONLY);
-        if (fd_in == -1)
-        {
-            perror(("nsh: " + cmd.stdin_file).c_str());
-            exit(1);
-        }
-        dup2(fd_in, STDIN_FILENO);
-        close(fd_in);
-    }
+    // Urutan eksekusi redirection sangat penting. Loop ini memprosesnya sesuai urutan di command line.
+    for (const auto& redir : cmd.redirections) {
+        int target_fd = -1;
+        int flags = 0;
 
-    if (!cmd.stdout_file.empty())
-    {
-        int flags = O_WRONLY | O_CREAT | (cmd.append_stdout ? O_APPEND : O_TRUNC);
-        int fd_out = open(expand_tilde(cmd.stdout_file).c_str(), flags, 0666);
-        if (fd_out == -1)
-        {
-            perror(("nsh: " + cmd.stdout_file).c_str());
-            exit(1);
+        switch (redir.type) {
+            case RedirectionType::REDIR_IN:
+            case RedirectionType::HERE_DOC: // Asumsikan here-doc sudah diproses dan filenya siap
+            {
+                std::string file_to_open = redir.target_file;
+                if (redir.type == RedirectionType::HERE_DOC) {
+                    // Anda harus memodifikasi handle_here_document agar mengembalikan nama file temporer
+                    // Untuk saat ini, kita asumsikan namanya "heredoc.tmp" seperti kode Anda yang ada
+                    handle_here_document(redir.delimiter);
+                    file_to_open = "heredoc.tmp";
+                }
+
+                int fd_in = open(expand_tilde(file_to_open).c_str(), O_RDONLY);
+                if (fd_in == -1) {
+                    perror(("nsh: " + file_to_open).c_str());
+                    exit(1);
+                }
+                if (dup2(fd_in, redir.source_fd) == -1) {
+                    perror("nsh: dup2 failed for stdin");
+                    exit(1);
+                }
+                close(fd_in);
+                if (redir.type == RedirectionType::HERE_DOC) {
+                    unlink(file_to_open.c_str());
+                }
+                break;
+            }
+
+            case RedirectionType::HERE_STRING:
+            {
+                int pipe_fd[2];
+                if (pipe(pipe_fd) == -1) {
+                    perror("nsh: pipe for here-string failed");
+                    exit(1);
+                }
+                write(pipe_fd[1], redir.content.c_str(), redir.content.length());
+                write(pipe_fd[1], "\n", 1);
+                close(pipe_fd[1]);
+                if (dup2(pipe_fd[0], redir.source_fd) == -1) {
+                    perror("nsh: dup2 failed for here-string");
+                    exit(1);
+                }
+                close(pipe_fd[0]);
+                break;
+            }
+
+            case RedirectionType::REDIR_OUT:
+            case RedirectionType::REDIR_OUT_APPEND:
+            case RedirectionType::REDIR_OUT_ERR:
+            case RedirectionType::REDIR_OUT_ERR_APPEND:
+            {
+                flags = O_WRONLY | O_CREAT;
+                if (redir.type == RedirectionType::REDIR_OUT_APPEND || redir.type == RedirectionType::REDIR_OUT_ERR_APPEND) {
+                    flags |= O_APPEND;
+                } else {
+                    flags |= O_TRUNC;
+                }
+
+                int fd_out = open(expand_tilde(redir.target_file).c_str(), flags, 0666);
+                if (fd_out == -1) {
+                    perror(("nsh: " + redir.target_file).c_str());
+                    exit(1);
+                }
+                
+                if (redir.type == RedirectionType::REDIR_OUT_ERR || redir.type == RedirectionType::REDIR_OUT_ERR_APPEND) {
+                    // &> dan &>>
+                    if (dup2(fd_out, 1) == -1) { perror("nsh: dup2 failed for stdout"); exit(1); }
+                    if (dup2(fd_out, 2) == -1) { perror("nsh: dup2 failed for stderr"); exit(1); }
+                } else {
+                    // > dan >> dengan fd spesifik
+                    if (dup2(fd_out, redir.source_fd) == -1) { perror("nsh: dup2 failed for stdout/stderr"); exit(1); }
+                }
+                close(fd_out);
+                break;
+            }
+            
+            case RedirectionType::DUPLICATE_OUT: // >&fd
+            case RedirectionType::DUPLICATE_IN:  // <&fd
+            {
+                if (dup2(redir.target_fd, redir.source_fd) == -1) {
+                    // Cek jika target_fd valid
+                    if (fcntl(redir.target_fd, F_GETFL) == -1 && errno == EBADF) {
+                         std::cerr << "nsh: " << redir.target_fd << ": bad file descriptor" << std::endl;
+                    } else {
+                        perror("nsh: dup2 failed for fd duplication");
+                    }
+                    exit(1);
+                }
+                break;
+            }
+
+            case RedirectionType::CLOSE_FD: // >&- or <&-
+            {
+                close(redir.source_fd);
+                break;
+            }
+
+            case RedirectionType::NONE:
+                break;
         }
-        dup2(fd_out, STDOUT_FILENO);
-        close(fd_out);
     }
 }
+
 
 std::string find_binary(const std::string &cmd)
 {
@@ -278,7 +518,7 @@ std::vector<char*> build_envp() {
     std::vector<char*> envp;
     
     for (const auto& pair : environ_map) {
-        if (pair.second.is_exported && !pair.second.value.empty()) {
+        if ((pair.second.is_exported || pair.second.is_default) && !pair.second.value.empty()) {
             std::string env_entry = pair.first + '=' + pair.second.value;
             char* dup_str = safe_strdup(env_entry.c_str());
             if (!dup_str) {
@@ -372,7 +612,7 @@ void launch_process(pid_t pgid, const SimpleCommand &cmd, bool foreground, const
         {
             if (cmd.exported_vars.find(var_name) != cmd.exported_vars.end())
             {
-                setenv(var_name.c_str(), value.c_str(), 1);
+                set_env_var(var_name.c_str(), value.c_str(), 0);
             }
         }
         
@@ -605,7 +845,7 @@ int execute_builtin(const SimpleCommand &cmd)
     {
         if (cmd.exported_vars.find(var_name) != cmd.exported_vars.end())
         {
-            setenv(var_name.c_str(), value.c_str(), 1);
+            set_env_var(var_name.c_str(), value.c_str(), 0);
         }
     }
 
@@ -615,8 +855,7 @@ int execute_builtin(const SimpleCommand &cmd)
 
     if (tokens[0] == "exit")
     {
-        save_history();
-        exit(tokens.size() > 1 ? std::stoi(tokens[1]) : 0);
+        exit_shell(tokens.size() > 1 ? std::stoi(tokens[1]) : 0);
     }
     else if (tokens[0] == "type")
     {
@@ -683,7 +922,7 @@ int execute_builtin(const SimpleCommand &cmd)
     {
         if (original_env.count(var_name))
         {
-            setenv(var_name.c_str(), original_env[var_name].c_str(), 1);
+            set_env_var(var_name.c_str(), original_env[var_name].c_str(), 0);
         }
         else
         {
@@ -879,67 +1118,56 @@ int execute_job(const ParsedCommand &cmd_group)
     if (in_fd != STDIN_FILENO)
         close(in_fd);
 
-    if (cmd_group.background)
+    // MODIFIKASI: Track job untuk SEMUA jenis proses (background dan foreground)
+    std::string command_str;
+    for (const auto &sc : cmd_group.pipeline)
     {
-        std::string command_str;
-        for (const auto &sc : cmd_group.pipeline)
-        {
-            for (const auto &token : sc.tokens)
-                command_str += token + " ";
-            if (&sc != &cmd_group.pipeline.back())
-                command_str += "| ";
-        }
-        
-        // PERBAIKAN: Update job tracking
-        previous_job_id = current_job_id;  // Simpan current job sebelumnya
-        current_job_id = next_job_id;      // Set current job ke yang baru
-        
-        jobs[next_job_id] = {pgid, command_str, JobStatus::RUNNING};
-        std::cout << "[" << next_job_id << "] " << pgid << std::endl;
-        next_job_id++;
-        
-        // Update last launched job
-        last_launched_job_id = current_job_id;
-        
-        return 0;
+        for (const auto &token : sc.tokens)
+             command_str += token + " ";
+        if (&sc != &cmd_group.pipeline.back())
+            command_str += "| ";
     }
-    else
-    {
+    
+    bool should_track_job = cmd_group.background;
+    
+    // Hanya track job jika:
+    // 1. Background job, ATAU
+    // 2. Job yang di-stop (ditangani nanti di signal handler)
+    
+    int job_id = 0;
+    if (should_track_job) {
+        job_id = add_job_to_list(pgid, command_str, JobStatus::RUNNING, true);
+        std::cout << "[" << job_id << "] " << pgid << std::endl;
+    }
+    
+    if (cmd_group.background) {
+        return 0;
+    } else {
+        // Foreground job processing - TANPA job tracking untuk job sederhana
         if (isatty(STDIN_FILENO)) {
             tcsetpgrp(STDIN_FILENO, pgid);
         }
         foreground_pgid = pgid;
+        
         int status = 0;
-        for (size_t i = 0; i < pids.size(); ++i)
-        {
+        for (size_t i = 0; i < pids.size(); ++i) {
             int current_status;
             waitpid(pids[i], &current_status, WUNTRACED);
             if (i == pids.size() - 1)
                 status = current_status;
         }
-        if (WIFSTOPPED(status))
-        {
-            std::string command_str;
-            for (const auto &sc : cmd_group.pipeline)
-            {
-                for (const auto &token : sc.tokens)
-                    command_str += token + " ";
-                if (&sc != &cmd_group.pipeline.back())
-                    command_str += "| ";
-            }
-            
-            // PERBAIKAN: Update job tracking untuk job yang stopped
-            previous_job_id = current_job_id;
-            current_job_id = next_job_id;
-            
-            jobs[next_job_id] = {pgid, command_str, JobStatus::STOPPED};
-            std::cout << "\n[" << next_job_id << "]+ Stopped\t" << command_str << std::endl;
-            next_job_id++;
-            
-            last_launched_job_id = current_job_id;
+        
+        // HANYA jika job di-stop, baru kita track sebagai job
+        if (WIFSTOPPED(status)) {
+            job_id = add_job_to_list(pgid, command_str, JobStatus::STOPPED, true);
+            std::cout << "\n[" << job_id << "]+ Stopped\t" << command_str << std::endl;
         }
+        
         foreground_pgid = 0;
-        tcsetpgrp(STDIN_FILENO, shell_pgid);
+        if (isatty(STDIN_FILENO)) {
+            tcsetpgrp(STDIN_FILENO, shell_pgid);
+        }
+        
         if (WIFEXITED(status))
             return WEXITSTATUS(status);
         if (WIFSIGNALED(status))
@@ -951,13 +1179,38 @@ int execute_job(const ParsedCommand &cmd_group)
 
 int execute_command_list(const std::vector<ParsedCommand> &commands) 
 {
+    validate_and_cleanup_jobs();
     if (commands.empty())
         return 0;
     int current_exit_code = 0;
+    
     for (size_t i = 0; i < commands.size(); ++i) {
         // Check for interrupt before executing each command
-        if (EOF_IN_interrupt) {
+        if (received_sigint) {
             return 130; // SIGINT exit code
+        }
+        
+        // Check for signals before executing each command
+        int signal_received = get_current_signal();
+        if (signal_received != 0) {
+            switch (signal_received) {
+                case SIGINT:
+                    reset_current_signal();
+                    return 128 + SIGINT; // 130
+                case SIGTERM:
+                    reset_current_signal();
+                    return 128 + SIGTERM; // 143
+                case SIGQUIT:
+                    reset_current_signal();
+                    return 128 + SIGQUIT; // 131
+                case SIGHUP:
+                    reset_current_signal();
+                    return 128 + SIGHUP; // 129
+                default:
+                    // For other signals, reset and continue or handle appropriately
+                    reset_current_signal();
+                    break;
+            }
         }
         
         const auto &cmd_group = commands[i];
@@ -967,22 +1220,54 @@ int execute_command_list(const std::vector<ParsedCommand> &commands)
                 (prev_op == ParsedCommand::Operator::OR && current_exit_code == 0))
                 continue;
         }
-        last_exit_code = current_exit_code;
+        
         if (cmd_group.pipeline.empty())
             continue;
         if (cmd_group.pipeline.size() == 1 && cmd_group.pipeline[0].tokens.empty() && !cmd_group.pipeline[0].env_vars.empty()) {
             for (const auto &[var, val] : cmd_group.pipeline[0].env_vars)
-                setenv(var.c_str(), val.c_str(), 1);
+                set_env_var(var.c_str(), val.c_str(), 0);
             current_exit_code = 0;
+            last_exit_code = current_exit_code;
             continue;
         }
+        
         current_exit_code = execute_job(cmd_group);
+        last_exit_code = current_exit_code;
         
         // Check for interrupt after executing each command
-        if (EOF_IN_interrupt) {
+        if (received_sigint) {
             return 130;
         }
+        
+        // Check for signals after executing each command
+        signal_received = get_current_signal();
+        if (signal_received != 0) {
+            switch (signal_received) {
+                case SIGINT:
+                    reset_current_signal();
+                    return 128 + SIGINT;
+                case SIGTERM:
+                    reset_current_signal();
+                    return 128 + SIGTERM;
+                case SIGQUIT:
+                    reset_current_signal();
+                    return 128 + SIGQUIT;
+                case SIGHUP:
+                    reset_current_signal();
+                    return 128 + SIGHUP;
+                case SIGTSTP:
+                    // For SIGTSTP, we might want to continue but reset the signal
+                    reset_current_signal();
+                    break;
+                default:
+                    reset_current_signal();
+                    break;
+            }
+        }
     }
+    
+    std::string val = std::to_string(current_exit_code);
+    setenv("nsh_pvarlist_exitcode", val.c_str(), 1);
     return current_exit_code;
 }
 

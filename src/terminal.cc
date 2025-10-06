@@ -1,5 +1,7 @@
 #include "terminal.h"
 #include "globals.h"
+#include "init.h"
+
 #include <termios.h>
 #include <unistd.h>
 #include <cstdio>
@@ -13,6 +15,7 @@ bool is_terminal_initialized = false;
 bool is_raw_mode = false;
 struct termios original_termios;
 struct termios current_termios;
+struct termios shell_tmodes;   // simpan mode terminal shell
 
 void setup_terminal()
 {
@@ -185,6 +188,7 @@ void safe_exit_terminal()
 
 void exit_shell(int exit_code)
 {
+    cleanup_session_manager();
     // Comprehensive shell exit function
     safe_exit_terminal();
     

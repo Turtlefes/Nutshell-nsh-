@@ -336,10 +336,6 @@ void handle_builtin_bookmark(const std::vector<std::string> &tokens)
             return;
         }
         
-        std::cout << "Remove all bookmarks? [y/N] ";
-        std::string response;
-        std::getline(std::cin, response);
-        
         std::ofstream bookmark_file(ns_BOOKMARK_FILE, std::ios::trunc);
         if (bookmark_file.is_open())
         {

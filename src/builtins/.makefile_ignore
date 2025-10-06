@@ -1,0 +1,11 @@
+alias.def.cc
+bookmark.def.cc
+cd.def.cc
+exec.def.cc
+export.def.cc
+hash.def.cc
+history.def.cc
+jobspec.def.cc
+pwd.def.cc
+unalias.def.cc
+unset.def.cc

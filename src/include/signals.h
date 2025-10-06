@@ -6,8 +6,15 @@ void suspend_shell();
 void suspend_current_job();
 int wait_for_job(pid_t pgid);
 
+extern volatile sig_atomic_t current_signal;
+extern volatile sig_atomic_t sigchld_flag;
+
 int disable_signal(std::string signal);
 int restore_signal(std::string signal);
+
+void reset_current_signal();
+int get_current_signal();
+std::string get_signal_name(int signum);
 
 // Deklarasi handler agar bisa diakses jika perlu (misal untuk setup)
 void sigchld_handler(int signum);
