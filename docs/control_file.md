@@ -3,7 +3,7 @@
 ---
 
 ### .nshrc
-You can use .nshrc as .bashrc as bash, you can put it in your HOME directory (or ~/.nshrc), example of .nshrc file contents:
+You can use .nshrc as a task control when the shell starts (similar to .bashrc in bash), you can put it in the HOME directory (or ~/.nshrc), example of the contents of the .nshrc file:
 
 ```
 PATH="/bin:/system/bin"
