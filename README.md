@@ -35,12 +35,19 @@ $ cat output.txt
 Downloads
 Documents
 File.txt
+
+$ ls file-not-exist 2>&1 | wc > e.txt
+$ cat e.txt
+       1       7      46
 ```
 
 ### Command substitution
 ```
 $ echo "you have $(ls | wc -l) files inside $(pwd) in $(date)"
 you have 3 files inside /user/home in Mon Oct 6 15:39:18 WIB 2025
+
+$ ls -l `which sh`
+-r-xr-xr-x  1 root  wheel  618512 Oct 26  2017 /bin/sh
 ```
 
 ### Run multiple commands (with logical)
@@ -78,5 +85,6 @@ $ echo $((?*10=200))
 
 and other complex math..
 
-## Nutshell also have a easter eggs! (BETA)
-You can find it yourself, btw you can crack my shell. (clue)
+## Nutshell has easter-eggs to!
+---
+Find the easter eggs in the shell!, or you can crack open my shell!

@@ -614,7 +614,7 @@ std::vector<ParsedCommand> Parser::parse(const std::string &input)
                     std::cerr << "nsh: syntax error near unexpected token `" << token.text << "'" << std::endl;
                     return {};
                 }
-                //apply_expansions_and_wildcards(current_simple_cmd.tokens);
+                apply_expansions_and_wildcards(current_simple_cmd.tokens);
                 command_list.back().pipeline.push_back(current_simple_cmd);
                 current_simple_cmd = {};
                 command_word_found = false;
@@ -628,7 +628,7 @@ std::vector<ParsedCommand> Parser::parse(const std::string &input)
                     std::cerr << "nsh: syntax error near unexpected token `" << token.text << "'" << std::endl;
                     return {};
                 }
-                //apply_expansions_and_wildcards(current_simple_cmd.tokens);
+                apply_expansions_and_wildcards(current_simple_cmd.tokens);
                 command_list.back().pipeline.push_back(current_simple_cmd);
                 current_simple_cmd = {};
 
@@ -757,7 +757,7 @@ std::vector<ParsedCommand> Parser::parse(const std::string &input)
 
     if (!current_simple_cmd.tokens.empty() || !current_simple_cmd.env_vars.empty() || !current_simple_cmd.redirections.empty())
     {
-        //apply_expansions_and_wildcards(current_simple_cmd.tokens);
+        apply_expansions_and_wildcards(current_simple_cmd.tokens);
         command_list.back().pipeline.push_back(current_simple_cmd);
     }
 

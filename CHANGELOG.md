@@ -77,7 +77,7 @@
 ### [-] Removed
 - Bookmark interactive question to clear
 
-**Date:** 2025-10-4 -> 2025-10-6 **Version:** 0.3.8.73, 0.3.8.76 (and upper)
+**Date:** 2025-10-4 -> 2025-10-7 **Version:** 0.3.8.73, 0.3.8.76 (and upper)
 
 ### [+] Added
 - HISTFILE support, you can customize where to save your history files
@@ -90,3 +90,8 @@
 - Fixed redirection expecting file descriptor "&" as a file targets
 - Weird History void (still testing out, but fixed)
 - Fixed fg bugs: Cannot send a signal, stdin freezing, and making the foreground stuck, now fixed (im so happy with this)
+
+**Date:** 2025-10-7 **Version:** 0.3.8.81 (and upper)
+
+### [*] Fixed
+- forgot to enable expansion
