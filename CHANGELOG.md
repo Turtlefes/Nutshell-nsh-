@@ -95,3 +95,4 @@
 
 ### [*] Fixed
 - forgot to enable expansion
+- Fixed expansion structure, per command expansion!

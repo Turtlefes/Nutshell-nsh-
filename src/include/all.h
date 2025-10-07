@@ -2,17 +2,17 @@
 #define ALL_H
 
 // Standard headers
+#include <csignal>
+#include <filesystem>
+#include <functional>
 #include <iostream>
-#include <string>
-#include <vector>
 #include <map>
 #include <memory>
-#include <functional>
-#include <filesystem>
-#include <csignal>
-#include <unistd.h>
+#include <string>
 #include <sys/types.h>
 #include <sys/wait.h>
+#include <unistd.h>
+#include <vector>
 
 // Project headers
 #include "builtins.h"
@@ -21,9 +21,9 @@
 #include "expansion.h"
 #include "globals.h"
 #include "init.h"
+#include "input.h"
 #include "parser.h"
 #include "platform.h"
-#include "input.h"
 #include "signals.h"
 #include "terminal.h"
 #include "utils.h"

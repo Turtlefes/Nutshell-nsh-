@@ -14,7 +14,6 @@ void safe_set_raw_mode();
 void exit_shell(int exit_code);
 void reset_terminal();
 
-
 void give_terminal_to(pid_t pgid);
 void give_terminal_to_fd(int fd, pid_t pgid);
 void take_terminal_to(pid_t pgid);

@@ -1,8 +1,8 @@
 #ifndef PLATFORM_H
 #define PLATFORM_H
 
-#include <filesystem>
 #include <cerrno>
+#include <filesystem>
 
 #ifdef __ANDROID__
 namespace fs = std::__fs::filesystem;

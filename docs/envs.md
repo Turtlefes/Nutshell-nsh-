@@ -26,6 +26,7 @@ $ echo $RANDOM
 - **HISTFILE** Where to save your history file (Warning: can be in your current path)
 - **HISTSIZE** Your history max size
 - **$** Current Shell PID
+- **!** Last job PGID
 - **?** Last exit code
 
 ### Escape Sequences for PS1
