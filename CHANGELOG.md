@@ -1,98 +1,110 @@
-# Nutshell-nsh 2025
+# 🐚 Nutshell-nsh 2025
 
-**Date:** 2025-09-18 -> 2025-09-19 **Version:** 0.3.8.46 -> 0.3.8.54
+---
 
-### bugs
-- Escaping backslash on EOF_IN mode [FIXED]
-- Cannot execute relative path [FIXED]
-- Pipeline cannot execute builtin command [FIXED]
-- Assignment variable like ```VAR=/value``` is considered as a path execution
-- Alias Assignment [FIXED, caused by tokenizer]
-- Bug when cd when having a CDPATH [FIXED]
+**Date:** 2025-09-18 → 2025-09-19  
+**Version:** 0.3.8.46 → 0.3.8.54  
 
-### To-be-changed/Coming
-- Hash output [CHANGED]
-- Hash hits count [ADDED]
+### 🐞 Bugs
+- Escaping backslash on EOF_IN mode **[FIXED]**
+- Cannot execute relative path **[FIXED]**
+- Pipeline cannot execute builtin command **[FIXED]**
+- Assignment variable like `VAR=/value` is considered as a path execution
+- Alias assignment error **[FIXED – caused by tokenizer]**
+- Bug when `cd` with `CDPATH` **[FIXED]**
+
+### 🚧 To-be-changed / Coming
+- Hash output **[CHANGED]**
+- Hash hits count **[ADDED]**
 
 ### [+] Added
-- Added hash cache support
-- New builtin hash
-- Hash hits count
-- More error handling on execution
+- Hash cache support  
+- New builtin `hash`  
+- Hash hits counter  
+- Better error handling on execution  
 
 ### [*] Fixed
-- Argv problems with command
-- Fix problem auto done input when using ctrl+c
-- Double quote expansion can't use command substitution or arithmetic expansion
-- Segmentation fault when using quotes
-- Fix cannot execute relative path
-- Pipeline cannot execute builtin command
-- Bug when cd when having a CDPATH
-- Escaping backslash on EOF_IN mode
+- `argv` parsing problems  
+- Input auto-done after Ctrl+C  
+- Double-quoted expansion couldn’t use command/arithmetic substitution  
+- Segmentation fault when using quotes  
+- Relative path execution fixed  
+- Pipeline builtin execution fixed  
+- `cd` with `CDPATH` fixed  
+- EOF backslash escaping fixed  
 
 ### [>] Changed
-- new README.md
-- Hash output
-- CHANGELOG.md
+- New `README.md`  
+- Hash output  
+- `CHANGELOG.md` updated  
 
+---
 
-
-**Date:** 2025-09-18 -> 2025-09-23 **Version:** 0.3.8.46 -> 0.3.8.56 -> 0.3.8.64
-
-### [+] Added
-- Environment child process
-- Support for pipelines execution like ``echo ls | nsh``
-- Bookmark Change directory
-- Builtin 'type'
-- History expansion "!"
-
-### [*] Fixed
-- Alias Assignment [FIXED, caused by tokenizer]
-- Signal output on child process looking weird
-- EOF interrupt
-- Variable Assignment in one line can't be initialized
-- Cannot interrupt a file execution V2
-
-**Date:** 2025-09-23 -> 2025-10-4 **Version:** 0.3.8.64 -> 0.3.8.73
+**Date:** 2025-09-18 → 2025-09-23  
+**Version:** 0.3.8.46 → 0.3.8.56 → 0.3.8.64  
 
 ### [+] Added
-#### 0.3.8.70
-- More redirection
-- Cross session jobs
-- Puzzle math like ```echo $((?+12=28)) # output 16``` and support for complex operation
-- Easter egg #1 | session easter egg/memes
-#### 0.3.8.73
-- New options "-f, --file" in nsh
-- Shell description
-- Easter egg #2 | Nuts crack animation easter egg/memes
+- Environment child process support  
+- Pipelines like `echo ls | nsh`  
+- Bookmark-based directory switching  
+- Builtin `type` command  
+- History expansion with `!`  
 
 ### [*] Fixed
-#### 0.3.8.70
-- Jobs structure
-- Jobs status structure
-- Incorrect jobs status bugs
-#### 0.3.8.73
-- Default variable get overwritted when assigning a variable
+- Alias assignment tokenizer bug  
+- Child process signal output glitch  
+- EOF interrupt issues  
+- One-line variable initialization bug  
+- File execution interruption (v2)  
+
+---
+
+**Date:** 2025-09-23 → 2025-10-04  
+**Version:** 0.3.8.64 → 0.3.8.73  
+
+### [+] Added
+#### v0.3.8.70
+- Extended redirection system  
+- Cross-session job persistence  
+- Puzzle math: `echo $((?+12=28))` → outputs `16` (supports complex ops)  
+- Easter Egg #1 — Session memes  
+#### v0.3.8.73
+- New `-f, --file` options for `nsh`  
+- Shell description info  
+- Easter Egg #2 — Nuts crack animation  
+
+### [*] Fixed
+#### v0.3.8.70
+- Job structure issues  
+- Job status synchronization bugs  
+#### v0.3.8.73
+- Default variables overwritten on assignment  
 
 ### [-] Removed
-- Bookmark interactive question to clear
+- Interactive bookmark clearing question  
 
-**Date:** 2025-10-4 -> 2025-10-7 **Version:** 0.3.8.73, 0.3.8.76 (and upper)
+---
+
+**Date:** 2025-10-04 → 2025-10-07  
+**Version:** 0.3.8.73 → 0.3.8.76 (and upper)  
 
 ### [+] Added
-- HISTFILE support, you can customize where to save your history files
-- HISTSIZE support, you can customize your max size history
+- `HISTFILE` support — custom history file path  
+- `HISTSIZE` support — configurable history size  
 
 ### [*] Fixed
-- Replaced exit() with exit_shell() in all code that uses
-- Fixed builtin exec causes stdin fo freeze
-- Fixed builtin exec -c not working properly
-- Fixed redirection expecting file descriptor "&" as a file targets
-- Weird History void (still testing out, but fixed)
-- Fixed fg bugs: Cannot send a signal, stdin freezing, and making the foreground stuck, now fixed (im so happy with this)
+- Replaced all `exit()` calls with `exit_shell()`  
+- Fixed builtin `exec` causing stdin freeze  
+- Fixed `exec -c` behavior  
+- Redirection no longer misinterprets `&` as filename  
+- History void bug (still under testing)  
+- Foreground control (`fg`) bug fixed — signals, stdin freeze, and hang issues resolved  
 
-**Date:** 2025-10-7 **Version:** 0.3.8.81 (and upper)
+---
+
+**Date:** 2025-10-07  
+**Version:** 0.3.8.81 (and upper)  
 
 ### [*] Fixed
-- forgot to enable expansion
-- Fixed expansion structure, per command expansion!
+- Expansion unintentionally disabled (now re-enabled)  
+- Command-level expansion structure rewritten  
