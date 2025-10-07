@@ -89,3 +89,4 @@
 - Fixed builtin exec -c not working properly
 - Fixed redirection expecting file descriptor "&" as a file targets
 - Weird History void (still testing out, but fixed)
+- Fixed fg bugs: Cannot send a signal, stdin freezing, and making the foreground stuck, now fixed (im so happy with this)

@@ -17,6 +17,7 @@
 #include <unistd.h>
 #include <termios.h>
 
+#include "terminal.h"
 #include "execution.h" // validate_and_cleanup_jobs
 
 namespace fs = std::filesystem;
@@ -962,6 +963,8 @@ void handle_builtin_fg(const std::vector<std::string>& tokens) {
             return;
         }
     }
+    
+    restore_terminal_mode();
     
     // Simpan terminal settings shell
     tcgetattr(STDIN_FILENO, &shell_tmodes);
