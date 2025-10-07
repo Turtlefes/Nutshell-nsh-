@@ -3,10 +3,11 @@
 ---
 
 ### .nshrc
-You can use .nshrc as .bashrc in bash, you can put it in the HOME directory or ~/.nshrc, example of .nshrc file contents:
+You can use .nshrc as .bashrc as bash, you can put it in your HOME directory (or ~/.nshrc), example of .nshrc file contents:
 
 ```
 PATH="/bin:/system/bin"
+HISTFILE="$HOME/my_history"
 echo Welcome users!, we are in the $$ PID!
 ```
 
