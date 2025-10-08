@@ -2,16 +2,17 @@
 #define GLOBALS_H
 
 #include "platform.h"
+#include <string>
+#include <vector>
+#include <map>
 #include <csignal>
+#include <unistd.h>
+#include <filesystem>
 #include <cstdlib>
 #include <cstring>
-#include <filesystem>
-#include <map>
 #include <stdexcept>
-#include <string>
-#include <unistd.h>
 #include <unordered_map>
-#include <vector>
+#include <string>
 
 #include <sys/resource.h>
 
@@ -58,20 +59,20 @@ extern char **environ;
 extern volatile sig_atomic_t received_sigint;
 extern volatile int dont_execute_first;
 struct binary_hash_info {
-  std::string path;
-  std::string command_name;
-  size_t hits = 0;
+    std::string path;
+    std::string command_name;
+    size_t hits = 0;
 };
 extern std::unordered_map<std::string, binary_hash_info> binary_hash_loc;
 // globals.h - Tambahkan di bagian variabel global
 extern fs::path ns_SESSION_FILE;
 extern int current_session_number;
 
+
 // --- Environ management ---
-void set_env_var(const std::string &name, const std::string &value,
-                 bool is_exported = false);
-void unset_env_var(const std::string &name);
-const char *get_env_var(const std::string &name);
+void set_env_var(const std::string& name, const std::string& value, bool is_exported = false);
+void unset_env_var(const std::string& name);
+const char* get_env_var(const std::string& name);
 struct var_info {
   std::string value;
   bool is_exported;
@@ -81,23 +82,25 @@ extern std::unordered_map<std::string, var_info> environ_map;
 
 // --- Job Control Structures ---
 enum class JobStatus {
-  RUNNING,  // Job sedang berjalan
-  STOPPED,  // Job dihentikan (misalnya oleh Ctrl+Z)
-  DONE,     // Job selesai dengan kode keluar 0
-  EXITED,   // Job selesai dengan kode keluar non-0
-  SIGNALED, // Job diakhiri oleh sinyal
-  UNKNOWN   // Status tidak diketahui
+    RUNNING,        // Job sedang berjalan
+    STOPPED,        // Job dihentikan (misalnya oleh Ctrl+Z)
+    DONE,           // Job selesai dengan kode keluar 0
+    EXITED,         // Job selesai dengan kode keluar non-0
+    SIGNALED,       // Job diakhiri oleh sinyal
+    UNKNOWN         // Status tidak diketahui
 };
 
+
 struct Job {
-  pid_t pgid;
-  std::string command;
-  JobStatus status;
-  struct rusage usage;
-  int term_status;              // Holds exit code or signal number
-  pid_t shell_pid = 0;          // PID dari shell pemilik job (Session ID)
-  struct timeval start_tv = {}; // Waktu mulai job (untuk CPU %)
+    pid_t pgid;
+    std::string command;
+    JobStatus status;
+    struct rusage usage;
+    int term_status; // Holds exit code or signal number
+    pid_t shell_pid = 0;        // PID dari shell pemilik job (Session ID)
+    struct timeval start_tv = {}; // Waktu mulai job (untuk CPU %)
 };
+
 
 extern std::map<int, Job> jobs;
 extern int next_job_id;
@@ -109,8 +112,8 @@ extern volatile pid_t foreground_pgid;
 // Job tracking
 extern int last_launched_job_id;
 // Pastikan baris ini sudah ada:
-extern int current_job_id;  // Job ID yang ditandai dengan '+' atau '%%'
-extern int previous_job_id; // Job ID yang ditandai dengan '-'
+extern int current_job_id;   // Job ID yang ditandai dengan '+' atau '%%'
+extern int previous_job_id;  // Job ID yang ditandai dengan '-'
 // Fungsi helper untuk job tracking
 int find_most_recent_job();
 int find_second_most_recent_job();
@@ -119,7 +122,7 @@ int get_active_job_count();
 void update_job_tracking(int finished_job_id);
 
 // Fungsi untuk melakukan ekspansi jobspec ke PGID
-int jobspec_to_pgid(const std::string &jobspec, pid_t &pgid_out);
+int jobspec_to_pgid(const std::string& jobspec, pid_t& pgid_out);
 // Returns: 0 on success, 1 on job not found/error.
 
 // --- Extra counters (from errors) ---
@@ -127,37 +130,33 @@ extern int history_number;
 extern int command_number;
 
 // --- Safe memory allocation functions ---
-inline void *safe_malloc(size_t size) {
-  void *ptr = malloc(size);
-  if (!ptr && size > 0)
-    throw std::bad_alloc();
-  return ptr;
+inline void* safe_malloc(size_t size) {
+    void* ptr = malloc(size);
+    if (!ptr && size > 0) throw std::bad_alloc();
+    return ptr;
 }
 
-inline void *safe_realloc(void *ptr, size_t size) {
-  void *new_ptr = realloc(ptr, size);
-  if (!new_ptr && size > 0) {
-    free(ptr);
-    throw std::bad_alloc();
-  }
-  return new_ptr;
+inline void* safe_realloc(void* ptr, size_t size) {
+    void* new_ptr = realloc(ptr, size);
+    if (!new_ptr && size > 0) {
+        free(ptr);
+        throw std::bad_alloc();
+    }
+    return new_ptr;
 }
 
-inline void *safe_calloc(size_t num, size_t size) {
-  void *ptr = calloc(num, size);
-  if (!ptr && num > 0 && size > 0)
-    throw std::bad_alloc();
-  return ptr;
+inline void* safe_calloc(size_t num, size_t size) {
+    void* ptr = calloc(num, size);
+    if (!ptr && num > 0 && size > 0) throw std::bad_alloc();
+    return ptr;
 }
 
-inline char *safe_strdup(const char *str) {
-  if (!str)
-    return nullptr;
-  char *new_str = static_cast<char *>(malloc(strlen(str) + 1));
-  if (!new_str)
-    throw std::bad_alloc();
-  strcpy(new_str, str);
-  return new_str;
+inline char* safe_strdup(const char* str) {
+    if (!str) return nullptr;
+    char* new_str = static_cast<char*>(malloc(strlen(str) + 1));
+    if (!new_str) throw std::bad_alloc();
+    strcpy(new_str, str);
+    return new_str;
 }
 
 #endif // GLOBALS_H

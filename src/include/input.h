@@ -5,6 +5,6 @@
 
 std::string get_prompt_string();
 std::string get_ps0();
-std::string get_multiline_input(const std::string &initial_prompt);
+std::string get_multiline_input(const std::string& initial_prompt);
 
 #endif // PROMPT_H

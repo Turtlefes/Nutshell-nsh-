@@ -107,4 +107,9 @@
 
 ### [*] Fixed
 - Expansion unintentionally disabled (now re-enabled)  
-- Command-level expansion structure rewritten  
+- Command-level expansion structure rewritten
+- Restore terminal bugs
+- Fixed a main shell terminal state race condition during fg built-in operations that caused the shell to hang.
+
+### [>] Code-Refractor
+- Fixed format
