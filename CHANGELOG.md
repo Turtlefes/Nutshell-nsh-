@@ -110,6 +110,7 @@
 - Command-level expansion structure rewritten
 - Restore terminal bugs
 - Fixed a main shell terminal state race condition during fg built-in operations that caused the shell to hang.
+- Fixed history void (final)
 
 ### [>] Code-Refractor
 - Fixed format

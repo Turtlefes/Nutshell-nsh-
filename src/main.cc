@@ -590,10 +590,6 @@ void run_interactive_shell() {
               std::cout.flush();
             }
             
-            // simpan secara periodik
-            if (command_history.size() % 10 == 0) {
-                write_history(ns_HISTORY_FILE.c_str());
-            }
         }
     }
 }

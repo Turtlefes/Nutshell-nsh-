@@ -333,18 +333,7 @@ void load_history() {
             ns_HISTORY_FILE = hist_path;
         }
     }
-    
-    if (const char* HISTSIZE = getenv("HISTSIZE"))
-    {
-      try {
-        int size = std::stoi(HISTSIZE);
-        if (size > 0)
-          stifle_history(size);
-      } catch (...) {
-          stifle_history(2000);
-      }
-    }
-    
+
     std::ifstream history_file(ns_HISTORY_FILE);
     if (history_file.is_open()) {
         std::string line;
@@ -363,6 +352,17 @@ void save_history() {
         for (const auto &cmd : command_history) {
             history_file << cmd << std::endl;
         }
+    }
+    
+    if (const char* HISTSIZE = getenv("HISTSIZE"))
+    {
+      try {
+        int size = std::stoi(HISTSIZE);
+        if (size > 0)
+          stifle_history(size);
+      } catch (...) {
+          stifle_history(2000);
+      }
     }
     // Selalu simpan GNU Readline history
     write_history(ns_HISTORY_FILE.c_str());

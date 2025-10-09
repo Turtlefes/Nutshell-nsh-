@@ -5,7 +5,7 @@
 //#
 // --- Shell Information ---
 const char *const shell_version   = "0.3.8";
-const char *const shell_version_long = "0.3.8.84";
+const char *const shell_version_long = "0.3.8.85";
 const char *const ext_shell_name  = "nsh";
 const char *const release_date    = "2025/09/16";
 const char *const COPYRIGHT       = "Copyright (c) 2025 Turtlefes. Bayu Setiawan";

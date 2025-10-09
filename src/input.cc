@@ -9,8 +9,8 @@
 #include <sstream>
 #include <readline/readline.h>
 #include <readline/history.h>
-#include "terminal.h"
-#include "init.h" // for save_history, exit_shell
+#include "terminal.h" // exit_shell
+#include "init.h" // for save_history
 #include "parser.h" // for tokenize, needs_EOF_IN
 #include "utils.h" // for rtrim
 #include "expansion.h"
@@ -443,6 +443,7 @@ std::string get_multiline_input(const std::string& initial_prompt) {
 
         // Add to history
         add_history(full_input.c_str());
+        save_history();
     }
 
     return full_input;
